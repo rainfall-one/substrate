@@ -575,6 +575,11 @@ pub mod pallet {
 		fn integrity_test() {
 			assert!(!MaxMessageLenOf::<T>::get().is_zero(), "HeapSize too low");
 		}
+
+		#[cfg(feature = "try-runtime")]
+		fn try_state(_: BlockNumberFor<T>) -> Result<(), &'static str> {
+			Self::do_try_state()
+		}
 	}
 
 	#[pallet::call]
@@ -1184,6 +1189,54 @@ impl<T: Config> Pallet<T> {
 				MessageExecutionStatus::Processed
 			},
 		}
+	}
+
+	/// Non-exhaustive check of pallet invariants.
+	///
+	/// 1. General storage invariants:
+	///  1.1 Pages map has no undecodable values.
+	///  1.2 Book state has no undecodable values.
+	///  1.3 Service head points to an existing queue.
+	/// 2. Book invariants:
+	///  2.1 Each book has valid `begin`, `end` and `count`.
+	///  2.1 The number of pages in a queue is equal to the number of pages in the book state.
+	#[cfg(any(test, feature = "std", feature = "try-runtime", feature = "runtime-benchmarks"))]
+	fn do_try_state() -> Result<(), &'static str> {
+		// 1.1
+		assert_eq!(
+			Pages::<T>::iter_keys().count(),
+			Pages::<T>::iter_values().count(),
+			"Pages map has undecodable values"
+		);
+		// 1.2
+		assert_eq!(
+			BookStateFor::<T>::iter_keys().count(),
+			BookStateFor::<T>::iter_values().count(),
+			"Book state has undecodable values"
+		);
+		// 1.3
+		if let Some(head) = ServiceHead::<T>::get() {
+			assert!(
+				BookStateFor::<T>::contains_key(&head),
+				"Service head points to a non-existent queue"
+			);
+		}
+		// 2.1
+		for (origin, book) in BookStateFor::<T>::iter() {
+			assert!(book.begin <= book.end, "Invalid book state: begin > end");
+			// The beginning is a valid page:
+			assert!(
+				Pages::<T>::contains_key(&origin, book.begin),
+				"Invalid book state: begin points to a non-existent page"
+			);
+			// The end is a valid page. See [BookState] for the `-1` here.
+			assert!(
+				Pages::<T>::contains_key(&origin, book.end - 1),
+				"Invalid book state: end points to a non-existent page"
+			);
+		}
+
+		Ok(())
 	}
 }
 
