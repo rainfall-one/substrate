@@ -688,7 +688,7 @@ impl NetworkConfiguration {
 }
 
 /// Network initialization parameters.
-pub struct Params<Client> {
+pub struct Params<'a, Client> {
 	/// Assigned role for our node (full, light, ...).
 	pub role: Role,
 
@@ -696,7 +696,7 @@ pub struct Params<Client> {
 	pub executor: Box<dyn Fn(Pin<Box<dyn Future<Output = ()> + Send>>) + Send>,
 
 	/// Network layer configuration.
-	pub network_config: NetworkConfiguration,
+	pub network_config: &'a mut NetworkConfiguration,
 
 	/// Client that contains the blockchain.
 	pub chain: Arc<Client>,

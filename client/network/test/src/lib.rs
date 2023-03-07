@@ -921,7 +921,7 @@ where
 			executor: Box::new(|f| {
 				tokio::spawn(f);
 			}),
-			network_config,
+			network_config: &mut network_config,
 			chain: client.clone(),
 			protocol_id,
 			fork_id,

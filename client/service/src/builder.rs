@@ -753,7 +753,7 @@ where
 /// Parameters to pass into `build_network`.
 pub struct BuildNetworkParams<'a, TBl: BlockT, TExPool, TImpQu, TCl> {
 	/// The service configuration.
-	pub config: &'a Configuration,
+	pub config: &'a mut Configuration,
 	/// A shared client returned by `new_full_parts`.
 	pub client: Arc<TCl>,
 	/// A shared transaction pool.
@@ -907,7 +907,7 @@ where
 		protocol_config
 	}));
 
-	let mut network_params = sc_network::config::Params {
+	let network_params = sc_network::config::Params {
 		role: config.role.clone(),
 		executor: {
 			let spawn_handle = Clone::clone(&spawn_handle);
@@ -915,7 +915,7 @@ where
 				spawn_handle.spawn("libp2p-node", Some("networking"), fut);
 			})
 		},
-		network_config: config.network.clone(),
+		network_config: &mut config.network,
 		chain: client.clone(),
 		protocol_id: protocol_id.clone(),
 		fork_id: config.chain_spec.fork_id().map(ToOwned::to_owned),

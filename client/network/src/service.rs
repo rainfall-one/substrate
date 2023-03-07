@@ -160,30 +160,22 @@ where
 			.request_response_protocols
 			.extend(params.request_response_protocol_configs);
 
-		params.network_config.boot_nodes = params
+		params
 			.network_config
 			.boot_nodes
-			.into_iter()
-			.filter(|boot_node| boot_node.peer_id != local_peer_id)
-			.collect();
-		params.network_config.default_peers_set.reserved_nodes = params
-			.network_config
-			.default_peers_set
-			.reserved_nodes
-			.into_iter()
-			.filter(|reserved_node| {
-				if reserved_node.peer_id == local_peer_id {
-					warn!(
-						target: "sub-libp2p",
-						"Local peer ID used in reserved node, ignoring: {}",
-						reserved_node,
-					);
-					false
-				} else {
-					true
-				}
-			})
-			.collect();
+			.retain(|boot_node| boot_node.peer_id != local_peer_id);
+		params.network_config.default_peers_set.reserved_nodes.retain(|reserved_node| {
+			if reserved_node.peer_id == local_peer_id {
+				warn!(
+					target: "sub-libp2p",
+					"Local peer ID used in reserved node, ignoring: {}",
+					reserved_node,
+				);
+				false
+			} else {
+				true
+			}
+		});
 
 		// Ensure the listen addresses are consistent with the transport.
 		ensure_addresses_consistent_with_transport(
@@ -228,7 +220,7 @@ where
 
 		let (protocol, peerset_handle, mut known_addresses) = Protocol::new(
 			From::from(&params.role),
-			&params.network_config,
+			&mut params.network_config,
 			params.block_announce_config,
 		)?;
 
@@ -365,7 +357,12 @@ where
 					user_agent,
 					local_public,
 					discovery_config,
-					params.network_config.request_response_protocols,
+					params
+						.network_config
+						.request_response_protocols
+						.iter()
+						.cloned()
+						.collect::<Vec<_>>(),
 					peerset_handle.clone(),
 				);
 

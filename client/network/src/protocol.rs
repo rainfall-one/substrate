@@ -94,8 +94,8 @@ impl<B: BlockT> Protocol<B> {
 	/// Create a new instance.
 	pub fn new(
 		roles: Roles,
-		network_config: &config::NetworkConfiguration,
-		block_announces_protocol: config::NonDefaultSetConfig,
+		network_config: &mut config::NetworkConfiguration,
+		block_announces_protocol: sc_network::config::NonDefaultSetConfig,
 	) -> error::Result<(Self, sc_peerset::PeersetHandle, Vec<(PeerId, Multiaddr)>)> {
 		let mut known_addresses = Vec::new();
 
@@ -123,8 +123,8 @@ impl<B: BlockT> Protocol<B> {
 				out_peers: network_config.default_peers_set.out_peers,
 				bootnodes,
 				reserved_nodes: default_sets_reserved.clone(),
-				reserved_only: network_config.default_peers_set.non_reserved_mode ==
-					NonReservedPeerMode::Deny,
+				reserved_only: network_config.default_peers_set.non_reserved_mode
+					== NonReservedPeerMode::Deny,
 			});
 
 			for set_cfg in &network_config.extra_sets {
@@ -398,24 +398,28 @@ impl<B: BlockT> NetworkBehaviour for Protocol<B> {
 		params: &mut impl PollParameters,
 	) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
 		if let Some(message) = self.pending_messages.pop_front() {
-			return Poll::Ready(NetworkBehaviourAction::GenerateEvent(message))
+			return Poll::Ready(NetworkBehaviourAction::GenerateEvent(message));
 		}
 
 		let event = match self.behaviour.poll(cx, params) {
 			Poll::Pending => return Poll::Pending,
 			Poll::Ready(NetworkBehaviourAction::GenerateEvent(ev)) => ev,
-			Poll::Ready(NetworkBehaviourAction::Dial { opts, handler }) =>
-				return Poll::Ready(NetworkBehaviourAction::Dial { opts, handler }),
-			Poll::Ready(NetworkBehaviourAction::NotifyHandler { peer_id, handler, event }) =>
+			Poll::Ready(NetworkBehaviourAction::Dial { opts, handler }) => {
+				return Poll::Ready(NetworkBehaviourAction::Dial { opts, handler })
+			},
+			Poll::Ready(NetworkBehaviourAction::NotifyHandler { peer_id, handler, event }) => {
 				return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
 					peer_id,
 					handler,
 					event,
-				}),
-			Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address, score }) =>
-				return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address, score }),
-			Poll::Ready(NetworkBehaviourAction::CloseConnection { peer_id, connection }) =>
-				return Poll::Ready(NetworkBehaviourAction::CloseConnection { peer_id, connection }),
+				})
+			},
+			Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address, score }) => {
+				return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address, score })
+			},
+			Poll::Ready(NetworkBehaviourAction::CloseConnection { peer_id, connection }) => {
+				return Poll::Ready(NetworkBehaviourAction::CloseConnection { peer_id, connection })
+			},
 		};
 
 		let outcome = match event {
@@ -532,7 +536,7 @@ impl<B: BlockT> NetworkBehaviour for Protocol<B> {
 					}
 				}
 			},
-			NotificationsOut::CustomProtocolReplaced { peer_id, notifications_sink, set_id } =>
+			NotificationsOut::CustomProtocolReplaced { peer_id, notifications_sink, set_id } => {
 				if self.bad_handshake_substreams.contains(&(peer_id, set_id)) {
 					CustomMessageOutcome::None
 				} else {
@@ -541,7 +545,8 @@ impl<B: BlockT> NetworkBehaviour for Protocol<B> {
 						protocol: self.notification_protocols[usize::from(set_id)].clone(),
 						notifications_sink,
 					}
-				},
+				}
+			},
 			NotificationsOut::CustomProtocolClosed { peer_id, set_id } => {
 				if self.bad_handshake_substreams.remove(&(peer_id, set_id)) {
 					// The substream that has just been closed had been opened with a bad
@@ -569,11 +574,11 @@ impl<B: BlockT> NetworkBehaviour for Protocol<B> {
 		};
 
 		if !matches!(outcome, CustomMessageOutcome::None) {
-			return Poll::Ready(NetworkBehaviourAction::GenerateEvent(outcome))
+			return Poll::Ready(NetworkBehaviourAction::GenerateEvent(outcome));
 		}
 
 		if let Some(message) = self.pending_messages.pop_front() {
-			return Poll::Ready(NetworkBehaviourAction::GenerateEvent(message))
+			return Poll::Ready(NetworkBehaviourAction::GenerateEvent(message));
 		}
 
 		// This block can only be reached if an event was pulled from the behaviour and that
