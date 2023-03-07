@@ -934,19 +934,17 @@ where
 	};
 
 	// crate transactions protocol and add it to the list of supported protocols of `network_params`
-	let transactions_handler_proto = sc_network_transactions::TransactionsHandlerPrototype::new(
-		protocol_id.clone(),
-		client
-			.block_hash(0u32.into())
-			.ok()
-			.flatten()
-			.expect("Genesis block exists; qed"),
-		config.chain_spec.fork_id(),
-	);
-	network_params
-		.network_config
-		.extra_sets
-		.insert(0, transactions_handler_proto.set_config());
+	let (transactions_handler_proto, transactions_config) =
+		sc_network_transactions::TransactionsHandlerPrototype::new(
+			protocol_id.clone(),
+			client
+				.block_hash(0u32.into())
+				.ok()
+				.flatten()
+				.expect("Genesis block exists; qed"),
+			config.chain_spec.fork_id(),
+		);
+	network_params.network_config.extra_sets.insert(0, transactions_config);
 
 	let has_bootnodes = !network_params.network_config.boot_nodes.is_empty();
 	let network_mut = sc_network::NetworkWorker::new(network_params)?;
