@@ -197,7 +197,7 @@ where
 		)?;
 		for extra_set in &params.network_config.extra_sets {
 			ensure_addresses_consistent_with_transport(
-				extra_set.set_config.reserved_nodes.iter().map(|x| &x.multiaddr),
+				extra_set.set_config().reserved_nodes.iter().map(|x| &x.multiaddr),
 				&params.network_config.transport,
 			)?;
 		}
@@ -323,7 +323,7 @@ where
 							usize::try_from(cfg.max_response_size).unwrap_or(usize::MAX)
 						});
 					let notifs_max = params.network_config.extra_sets.iter().map(|cfg| {
-						usize::try_from(cfg.max_notification_size).unwrap_or(usize::MAX)
+						usize::try_from(cfg.max_notification_size()).unwrap_or(usize::MAX)
 					});
 
 					// A "default" max is added to cover all the other protocols: ping, identify,

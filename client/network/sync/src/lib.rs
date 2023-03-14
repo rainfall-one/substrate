@@ -1448,10 +1448,7 @@ where
 			state_request_protocol_name,
 			warp_sync_params,
 			warp_sync_protocol_name,
-			block_announce_protocol_name: block_announce_config
-				.notifications_protocol
-				.clone()
-				.into(),
+			block_announce_protocol_name: block_announce_config.protocol_name().clone().into(),
 			pending_responses: Default::default(),
 			import_queue,
 			metrics: if let Some(r) = &metrics_registry {
@@ -1961,14 +1958,11 @@ where
 			}
 		};
 
-		NonDefaultSetConfig {
-			notifications_protocol: block_announces_protocol.into(),
-			fallback_names: iter::once(
-				format!("/{}/block-announces/1", protocol_id.as_ref()).into(),
-			)
-			.collect(),
-			max_notification_size: MAX_BLOCK_ANNOUNCE_SIZE,
-			handshake: Some(NotificationHandshake::new(BlockAnnouncesHandshake::<B>::build(
+		NonDefaultSetConfig::new(
+			block_announces_protocol.into(),
+			iter::once(format!("/{}/block-announces/1", protocol_id.as_ref()).into()).collect(),
+			MAX_BLOCK_ANNOUNCE_SIZE,
+			Some(NotificationHandshake::new(BlockAnnouncesHandshake::<B>::build(
 				roles,
 				best_number,
 				best_hash,
@@ -1976,13 +1970,13 @@ where
 			))),
 			// NOTE: `set_config` will be ignored by `protocol.rs` as the block announcement
 			// protocol is still hardcoded into the peerset.
-			set_config: SetConfig {
+			SetConfig {
 				in_peers: 0,
 				out_peers: 0,
 				reserved_nodes: Vec::new(),
 				non_reserved_mode: NonReservedPeerMode::Deny,
 			},
-		}
+		)
 	}
 
 	fn decode_block_response(response: &[u8]) -> Result<OpaqueBlockResponse, String> {
