@@ -113,7 +113,7 @@ impl TestNetworkBuilder {
 			|v| v.clone(),
 		);
 
-		let network_config = self.config.unwrap_or(config::NetworkConfiguration {
+		let mut network_config = self.config.unwrap_or(config::NetworkConfiguration {
 			extra_sets: vec![config::NonDefaultSetConfig {
 				notifications_protocol: PROTOCOL_NAME.into(),
 				fallback_names: Vec::new(),
@@ -203,7 +203,7 @@ impl TestNetworkBuilder {
 			executor: Box::new(|f| {
 				tokio::spawn(f);
 			}),
-			network_config,
+			network_config: &mut network_config,
 			chain: client.clone(),
 			protocol_id,
 			fork_id,
