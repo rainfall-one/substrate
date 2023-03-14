@@ -29,9 +29,10 @@ use crate::{
 use futures::{channel::oneshot, Stream};
 use libp2p::{Multiaddr, PeerId};
 
+use sc_network_common::role::ObservedRole;
 use sc_peerset::ReputationChange;
 
-use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, future::Future, pin::Pin, sync::Arc};
 
 pub use libp2p::{identity::error::SigningError, kad::record::Key as KademliaKey};
 
