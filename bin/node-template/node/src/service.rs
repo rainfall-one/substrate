@@ -181,11 +181,10 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 		&client.block_hash(0).ok().flatten().expect("Genesis block exists; qed"),
 		&config.chain_spec,
 	);
+	let (grandpa_protocol_config, grandpa_notification_handle) =
+		sc_consensus_grandpa::grandpa_peers_set_config(grandpa_protocol_name.clone());
 
-	config
-		.network
-		.extra_sets
-		.push(sc_consensus_grandpa::grandpa_peers_set_config(grandpa_protocol_name.clone()));
+	config.network.extra_sets.push(grandpa_protocol_config);
 	let warp_sync = Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
 		backend.clone(),
 		grandpa_link.shared_authority_set().clone(),

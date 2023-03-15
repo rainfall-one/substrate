@@ -113,14 +113,15 @@ impl TestNetworkBuilder {
 			|v| v.clone(),
 		);
 
+		let (config, handle) = config::NonDefaultSetConfig::new(
+			PROTOCOL_NAME.into(),
+			Vec::new(),
+			1024 * 1024,
+			None,
+			self.set_config.unwrap_or_default(),
+		);
 		let mut network_config = self.config.unwrap_or(config::NetworkConfiguration {
-			extra_sets: vec![config::NonDefaultSetConfig::new(
-				PROTOCOL_NAME.into(),
-				Vec::new(),
-				1024 * 1024,
-				None,
-				self.set_config.unwrap_or_default(),
-			)],
+			extra_sets: vec![config],
 			listen_addresses: self.listen_addresses,
 			transport: TransportConfig::MemoryOnly,
 			..config::NetworkConfiguration::new_local()
@@ -547,15 +548,16 @@ async fn fallback_name_working() {
 	const NEW_PROTOCOL_NAME: &str = "/new-shiny-protocol-that-isnt-PROTOCOL_NAME";
 
 	let listen_addr = config::build_multiaddr![Memory(rand::random::<u64>())];
+	let (config, handle) = config::NonDefaultSetConfig::new(
+		NEW_PROTOCOL_NAME.into(),
+		vec![PROTOCOL_NAME.into()],
+		1024 * 1024,
+		None,
+		Default::default(),
+	);
 	let (node1, mut events_stream1) = TestNetworkBuilder::new()
 		.with_config(config::NetworkConfiguration {
-			extra_sets: vec![config::NonDefaultSetConfig::new(
-				NEW_PROTOCOL_NAME.into(),
-				vec![PROTOCOL_NAME.into()],
-				1024 * 1024,
-				None,
-				Default::default(),
-			)],
+			extra_sets: vec![config],
 			listen_addresses: vec![listen_addr.clone()],
 			transport: TransportConfig::MemoryOnly,
 			..config::NetworkConfiguration::new_local()

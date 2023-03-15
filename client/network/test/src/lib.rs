@@ -56,7 +56,7 @@ use sc_network::{
 	request_responses::ProtocolConfig as RequestResponseConfig,
 	types::ProtocolName,
 	Multiaddr, NetworkBlock, NetworkEventStream, NetworkService, NetworkStateInfo,
-	NetworkSyncForkRequest, NetworkWorker,
+	NetworkSyncForkRequest, NetworkWorker, NotificationService,
 };
 use sc_network_common::{
 	role::Roles,
@@ -242,6 +242,7 @@ pub struct Peer<D, BlockImport> {
 	imported_blocks_stream: Pin<Box<dyn Stream<Item = BlockImportNotification<Block>> + Send>>,
 	finality_notification_stream: Pin<Box<dyn Stream<Item = FinalityNotification<Block>> + Send>>,
 	listen_addr: Multiaddr,
+	notification_handles: HashMap<ProtocolName, Box<dyn NotificationService>>,
 }
 
 impl<D, B> Peer<D, B>
@@ -517,8 +518,17 @@ where
 		self.network.service()
 	}
 
+	/// Get `SyncingService`.
 	pub fn sync_service(&self) -> &Arc<SyncingService<Block>> {
 		&self.sync_service
+	}
+
+	/// Take notification handle for enabled protocol.
+	pub fn take_notification_handle(
+		&mut self,
+		protocol: &ProtocolName,
+	) -> Option<Box<dyn NotificationService>> {
+		self.notification_handles.remove(protocol)
 	}
 
 	/// Get a reference to the network worker.
@@ -815,11 +825,22 @@ where
 		network_config
 			.request_response_protocols
 			.extend(config.request_response_protocols);
-		network_config.extra_sets = config
+		let (notif_configs, notif_handles): (Vec<_>, Vec<_>) = config
 			.notifications_protocols
 			.into_iter()
-			.map(|p| NonDefaultSetConfig::new(p, Vec::new(), 1024 * 1024, None, Default::default()))
-			.collect();
+			.map(|p| {
+				let (config, handle) = NonDefaultSetConfig::new(
+					p.clone(),
+					Vec::new(),
+					1024 * 1024,
+					None,
+					Default::default(),
+				);
+
+				(config, (p, handle))
+			})
+			.unzip();
+		network_config.extra_sets = notif_configs;
 		if let Some(connect_to) = config.connect_to_peers {
 			let addrs = connect_to
 				.iter()
@@ -964,6 +985,7 @@ where
 				backend: Some(backend),
 				imported_blocks_stream,
 				finality_notification_stream,
+				notification_handles: HashMap::from_iter(notif_handles.into_iter()),
 				block_import,
 				verifier,
 				network,
