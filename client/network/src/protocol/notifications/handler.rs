@@ -91,7 +91,7 @@ use std::{
 
 /// Number of pending notifications in asynchronous contexts.
 /// See [`NotificationsSink::reserve_notification`] for context.
-const ASYNC_NOTIFICATIONS_BUFFER_SIZE: usize = 8;
+pub(crate) const ASYNC_NOTIFICATIONS_BUFFER_SIZE: usize = 8;
 
 /// Number of pending notifications in synchronous contexts.
 const SYNC_NOTIFICATIONS_BUFFER_SIZE: usize = 2048;
@@ -396,7 +396,7 @@ struct NotificationsSinkInner {
 
 /// Message emitted through the [`NotificationsSink`] and processed by the background task
 /// dedicated to the peer.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NotificationsSinkMessage {
 	/// Message emitted by [`NotificationsSink::reserve_notification`] and
 	/// [`NotificationsSink::write_notification_now`].
@@ -429,6 +429,7 @@ impl NotificationsSink {
 				tx.try_send(NotificationsSinkMessage::Notification { message: message.into() });
 
 			if result.is_err() {
+				println!("error happened");
 				// Cloning the `mpsc::Sender` guarantees the allocation of an extra spot in the
 				// buffer, and therefore `try_send` will succeed.
 				let _result2 = tx.clone().try_send(NotificationsSinkMessage::ForceClose);

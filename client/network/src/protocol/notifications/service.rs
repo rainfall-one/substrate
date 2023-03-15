@@ -21,17 +21,15 @@
 #![allow(unused)]
 
 use crate::{
-	protocol::notifications::handler::NotificationsSink,
+	error,
+	protocol::notifications::handler::{
+		NotificationsSink, NotificationsSinkMessage, ASYNC_NOTIFICATIONS_BUFFER_SIZE,
+	},
 	service::traits::{NotificationEvent, NotificationService, ValidationResult},
 	types::ProtocolName,
 };
 
-use futures::{
-	// channel::{mpsc, oneshot},
-	stream::Stream,
-	SinkExt,
-	StreamExt,
-};
+use futures::{stream::Stream, SinkExt, StreamExt};
 use libp2p::PeerId;
 use tokio::sync::{mpsc, oneshot};
 
@@ -39,7 +37,8 @@ use sc_network_common::role::ObservedRole;
 
 use std::{collections::HashMap, fmt::Debug};
 
-// TODO: documentation
+/// Inner notification event to deal with `NotificationsSinks` without exposing that
+/// implementation detail to [`NotificationService`] consumers.
 enum InnerNotificationEvent {
 	/// Validate inbound substream.
 	ValidateInboundSubstream {
@@ -130,26 +129,41 @@ impl NotificationHandle {
 impl NotificationService for NotificationHandle {
 	/// Instruct `Notifications` to open a new substream for `peer`.
 	async fn open_substream(&mut self, peer: PeerId) -> Result<(), ()> {
-		todo!()
+		todo!("support for opening substreams not implemented yet");
 	}
 
 	/// Instruct `Notifications` to close substream for `peer`.
 	async fn close_substream(&mut self, peer: PeerId) -> Result<(), ()> {
-		todo!();
+		todo!("support for closing substreams not implemented yet");
 	}
 
 	/// Send synchronous `notification` to `peer`.
-	fn send_sync_notification(&mut self, peer: PeerId, notification: Vec<u8>) -> Result<(), ()> {
-		todo!();
+	fn send_sync_notification(
+		&self,
+		peer: &PeerId,
+		notification: Vec<u8>,
+	) -> Result<(), error::Error> {
+		self.peers
+			.get(&peer)
+			.ok_or_else(|| error::Error::PeerDoesntExist(*peer))?
+			.send_sync_notification(notification);
+		Ok(())
 	}
 
 	/// Send asynchronous `notification` to `peer`, allowing sender to exercise backpressure.
 	async fn send_async_notification(
-		&mut self,
-		peer: PeerId,
+		&self,
+		peer: &PeerId,
 		notification: Vec<u8>,
-	) -> Result<(), ()> {
-		todo!();
+	) -> Result<(), error::Error> {
+		self.peers
+			.get(&peer)
+			.ok_or_else(|| error::Error::PeerDoesntExist(*peer))?
+			.reserve_notification()
+			.await
+			.map_err(|_| error::Error::ConnectionClosed)?
+			.send(notification)
+			.map_err(|_| error::Error::ChannelClosed)
 	}
 
 	/// Set handshake for the notification protocol replacing the old handshake.
@@ -159,8 +173,52 @@ impl NotificationService for NotificationHandle {
 
 	/// Get next event from the `Notifications` event stream.
 	async fn next_event(&mut self) -> Option<NotificationEvent> {
-		todo!();
-		// match self.rx.next().await {}
+		match self.rx.recv().await? {
+			InnerNotificationEvent::ValidateInboundSubstream { peer, handshake, result_tx } =>
+				Some(NotificationEvent::ValidateInboundSubstream { peer, handshake, result_tx }),
+			InnerNotificationEvent::NotificationStreamOpened {
+				peer,
+				role,
+				negotiated_fallback,
+				sink,
+			} => {
+				self.peers.insert(peer, sink);
+				Some(NotificationEvent::NotificationStreamOpened {
+					peer,
+					role,
+					negotiated_fallback,
+				})
+			},
+			InnerNotificationEvent::NotificationStreamClosed { peer } => {
+				self.peers.remove(&peer);
+				Some(NotificationEvent::NotificationStreamClosed { peer })
+			},
+			InnerNotificationEvent::NotificationReceived { peer, notification } =>
+				Some(NotificationEvent::NotificationReceived { peer, notification }),
+		}
+	}
+}
+
+/// Channel pair which allows `Notifications` to interact with a protocol.
+#[derive(Debug)]
+pub struct ProtocolHandlePair(
+	mpsc::Sender<InnerNotificationEvent>,
+	mpsc::Receiver<NotificationCommand>,
+);
+
+impl ProtocolHandlePair {
+	/// Create new [`ProtocolHandlePair`].
+	fn new(
+		tx: mpsc::Sender<InnerNotificationEvent>,
+		rx: mpsc::Receiver<NotificationCommand>,
+	) -> Self {
+		Self(tx, rx)
+	}
+
+	/// Split [`ProtocolHandlePair`] into a handle which allows it to send events to the protocol
+	/// into a stream of commands received from the protocol.
+	pub fn split(self) -> (ProtocolHandle, Box<dyn Stream<Item = NotificationCommand>>) {
+		(ProtocolHandle::new(self.0), Box::new(tokio_stream::wrappers::ReceiverStream::new(self.1)))
 	}
 }
 
@@ -170,129 +228,479 @@ impl NotificationService for NotificationHandle {
 pub struct ProtocolHandle {
 	/// TX channel for sending events to protocol.
 	tx: mpsc::Sender<InnerNotificationEvent>,
-
-	/// RX channel for receiving commands from `Protocol`.
-	rx: mpsc::Receiver<NotificationCommand>,
 }
 
-pub trait ProtocolService: Debug {
+impl ProtocolHandle {
+	fn new(tx: mpsc::Sender<InnerNotificationEvent>) -> Self {
+		Self { tx }
+	}
+
 	/// Report to the protocol that a substream has been opened and it must be validated by the
 	/// protocol.
 	///
 	/// Return `oneshot::Receiver` which allows `Notifications` to poll for the validation result
 	/// from protocol.
-	fn report_incoming_substream(
-		&mut self,
-		peer: PeerId,
-		handshake: Vec<u8>,
-	) -> Result<oneshot::Receiver<ValidationResult>, ()>;
-
-	fn report_substream_opened(
-		&mut self,
-		peer: PeerId,
-		role: ObservedRole,
-		negotiated_fallback: Option<ProtocolName>,
-		sink: NotificationsSink,
-	) -> Result<(), ()>;
-
-	/// Substream was closed.
-	fn report_substream_closed(&mut self, peer: PeerId) -> Result<(), ()>;
-
-	/// Notification was received from the substream.
-	fn report_notification_received(
-		&mut self,
-		peer: PeerId,
-		notification: Vec<u8>,
-	) -> Result<(), ()>;
-}
-
-impl ProtocolService for mpsc::Sender<InnerNotificationEvent> {
-	/// Report to the protocol that a substream has been opened and it must be validated by the
-	/// protocol.
-	///
-	/// Return `oneshot::Receiver` which allows `Notifications` to poll for the validation result
-	/// from protocol.
-	fn report_incoming_substream(
-		&mut self,
+	async fn report_incoming_substream(
+		&self,
 		peer: PeerId,
 		handshake: Vec<u8>,
 	) -> Result<oneshot::Receiver<ValidationResult>, ()> {
-		todo!();
+		let (result_tx, rx) = oneshot::channel();
+
+		self.tx
+			.send(InnerNotificationEvent::ValidateInboundSubstream { peer, handshake, result_tx })
+			.await
+			.map(|_| rx)
+			.map_err(|_| ())
 	}
 
-	fn report_substream_opened(
-		&mut self,
+	/// Report to the protocol that a substream has been opened and that it can now use the handle
+	/// to send notifications to the remote peer.
+	async fn report_substream_opened(
+		&self,
 		peer: PeerId,
 		role: ObservedRole,
 		negotiated_fallback: Option<ProtocolName>,
 		sink: NotificationsSink,
 	) -> Result<(), ()> {
-		todo!()
+		self.tx
+			.send(InnerNotificationEvent::NotificationStreamOpened {
+				peer,
+				role,
+				negotiated_fallback,
+				sink,
+			})
+			.await
+			.map_err(|_| ())
 	}
 
 	/// Substream was closed.
-	fn report_substream_closed(&mut self, peer: PeerId) -> Result<(), ()> {
-		todo!()
+	async fn report_substream_closed(&mut self, peer: PeerId) -> Result<(), ()> {
+		self.tx
+			.send(InnerNotificationEvent::NotificationStreamClosed { peer })
+			.await
+			.map_err(|_| ())
 	}
 
 	/// Notification was received from the substream.
-	fn report_notification_received(
+	async fn report_notification_received(
 		&mut self,
 		peer: PeerId,
 		notification: Vec<u8>,
 	) -> Result<(), ()> {
-		todo!()
-	}
-}
-
-// TODO: the other object doesn't have to be boxed, can be normal struct
-impl ProtocolHandle {
-	/// Create new [`ProtocolHandle`].
-	fn new(
-		tx: mpsc::Sender<InnerNotificationEvent>,
-		rx: mpsc::Receiver<NotificationCommand>,
-	) -> Self {
-		Self { tx, rx }
-	}
-
-	/// Split [`ProtocolHandle`] into an object implementing trait that allows `Notifications`
-	/// to interact with the protocol and into a stream of commands received from the protocol.
-	pub fn split(self) -> (Box<dyn ProtocolService>, Box<dyn Stream<Item = NotificationCommand>>) {
-		(Box::new(self.tx), Box::new(tokio_stream::wrappers::ReceiverStream::new(self.rx)))
+		self.tx
+			.send(InnerNotificationEvent::NotificationReceived { peer, notification })
+			.await
+			.map_err(|_| ())
 	}
 }
 
 /// Create new (protocol, notification) handle pair.
 ///
 /// Handle pair allows `Notifications` and the protocol to communicate with each other directly.
-pub fn notification_service() -> (ProtocolHandle, Box<dyn NotificationService>) {
+pub fn notification_service() -> (ProtocolHandlePair, Box<dyn NotificationService>) {
 	let (cmd_tx, cmd_rx) = mpsc::channel(64); // TODO: zzz
 	let (event_tx, event_rx) = mpsc::channel(64); // TODO: zzz
 
-	(ProtocolHandle::new(event_tx, cmd_rx), Box::new(NotificationHandle::new(cmd_tx, event_rx)))
+	(ProtocolHandlePair::new(event_tx, cmd_rx), Box::new(NotificationHandle::new(cmd_tx, event_rx)))
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use futures::prelude::*;
 
 	#[tokio::test]
 	async fn validate_and_accept_substream() {
-		let (proto, notif) = notification_service();
-		let (sink, _, _) = NotificationsSink::new(PeerId::random());
+		let (proto, mut notif) = notification_service();
+		let (mut handle, stream) = proto.split();
 
-		let (tx, rx) = proto.split();
+		let peer_id = PeerId::random();
+		let rx = handle.report_incoming_substream(peer_id, vec![1, 3, 3, 7]).await.unwrap();
 
-		// TODO: emit
+		if let Some(NotificationEvent::ValidateInboundSubstream { peer, handshake, result_tx }) =
+			notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(handshake, vec![1, 3, 3, 7]);
+			result_tx.send(ValidationResult::Accept);
+		} else {
+			panic!("invalid event received");
+		}
+
+		assert_eq!(rx.await.unwrap(), ValidationResult::Accept);
 	}
 
 	#[tokio::test]
-	async fn validate_and_reject_substream() {
-		let (proto, notif) = notification_service();
+	async fn substream_opened() {
+		let (proto, mut notif) = notification_service();
 		let (sink, _, _) = NotificationsSink::new(PeerId::random());
+		let (mut handle, stream) = proto.split();
 
-		let (tx, rx) = proto.split();
+		let peer_id = PeerId::random();
+		handle
+			.report_substream_opened(peer_id, ObservedRole::Full, None, sink)
+			.await
+			.unwrap();
 
-		// TODO: emit
+		if let Some(NotificationEvent::NotificationStreamOpened {
+			peer,
+			role,
+			negotiated_fallback,
+		}) = notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(negotiated_fallback, None);
+			assert_eq!(role, ObservedRole::Full);
+		} else {
+			panic!("invalid event received");
+		}
+	}
+
+	#[tokio::test]
+	async fn send_sync_notification() {
+		let (proto, mut notif) = notification_service();
+		let (sink, _, mut sync_rx) = NotificationsSink::new(PeerId::random());
+		let (mut handle, stream) = proto.split();
+		let peer_id = PeerId::random();
+
+		// validate inbound substream
+		let result_rx = handle.report_incoming_substream(peer_id, vec![1, 3, 3, 7]).await.unwrap();
+
+		if let Some(NotificationEvent::ValidateInboundSubstream { peer, handshake, result_tx }) =
+			notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(handshake, vec![1, 3, 3, 7]);
+			result_tx.send(ValidationResult::Accept);
+		} else {
+			panic!("invalid event received");
+		}
+		assert_eq!(result_rx.await.unwrap(), ValidationResult::Accept);
+
+		// report that a substream has been opened
+		handle
+			.report_substream_opened(peer_id, ObservedRole::Full, None, sink)
+			.await
+			.unwrap();
+
+		if let Some(NotificationEvent::NotificationStreamOpened {
+			peer,
+			role,
+			negotiated_fallback,
+		}) = notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(negotiated_fallback, None);
+			assert_eq!(role, ObservedRole::Full);
+		} else {
+			panic!("invalid event received");
+		}
+
+		notif.send_sync_notification(&peer_id, vec![1, 3, 3, 8]);
+		assert_eq!(
+			sync_rx.next().await,
+			Some(NotificationsSinkMessage::Notification { message: vec![1, 3, 3, 8] })
+		);
+	}
+
+	#[tokio::test]
+	async fn send_async_notification() {
+		let (proto, mut notif) = notification_service();
+		let (sink, mut async_rx, _) = NotificationsSink::new(PeerId::random());
+		let (mut handle, stream) = proto.split();
+		let peer_id = PeerId::random();
+
+		// validate inbound substream
+		let result_rx = handle.report_incoming_substream(peer_id, vec![1, 3, 3, 7]).await.unwrap();
+
+		if let Some(NotificationEvent::ValidateInboundSubstream { peer, handshake, result_tx }) =
+			notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(handshake, vec![1, 3, 3, 7]);
+			result_tx.send(ValidationResult::Accept);
+		} else {
+			panic!("invalid event received");
+		}
+		assert_eq!(result_rx.await.unwrap(), ValidationResult::Accept);
+
+		// report that a substream has been opened
+		handle
+			.report_substream_opened(peer_id, ObservedRole::Full, None, sink)
+			.await
+			.unwrap();
+
+		if let Some(NotificationEvent::NotificationStreamOpened {
+			peer,
+			role,
+			negotiated_fallback,
+		}) = notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(negotiated_fallback, None);
+			assert_eq!(role, ObservedRole::Full);
+		} else {
+			panic!("invalid event received");
+		}
+
+		notif.send_async_notification(&peer_id, vec![1, 3, 3, 9]).await.unwrap();
+		assert_eq!(
+			async_rx.next().await,
+			Some(NotificationsSinkMessage::Notification { message: vec![1, 3, 3, 9] })
+		);
+	}
+
+	#[tokio::test]
+	async fn send_sync_notification_to_non_existent_peer() {
+		let (proto, mut notif) = notification_service();
+		let (sink, _, mut sync_rx) = NotificationsSink::new(PeerId::random());
+		let (mut handle, stream) = proto.split();
+		let peer = PeerId::random();
+
+		if let Err(error::Error::PeerDoesntExist(peer_id)) =
+			notif.send_sync_notification(&peer, vec![1, 3, 3, 7])
+		{
+			assert_eq!(peer, peer_id);
+		} else {
+			panic!("invalid error received from `send_sync_notification()`");
+		}
+	}
+
+	#[tokio::test]
+	async fn send_async_notification_to_non_existent_peer() {
+		let (proto, mut notif) = notification_service();
+		let (sink, _, mut sync_rx) = NotificationsSink::new(PeerId::random());
+		let (mut handle, stream) = proto.split();
+		let peer = PeerId::random();
+
+		if let Err(error::Error::PeerDoesntExist(peer_id)) =
+			notif.send_async_notification(&peer, vec![1, 3, 3, 7]).await
+		{
+			assert_eq!(peer, peer_id);
+		} else {
+			panic!("invalid error received from `send_sync_notification()`");
+		}
+	}
+
+	#[tokio::test]
+	async fn receive_notification() {
+		let (proto, mut notif) = notification_service();
+		let (sink, _, mut sync_rx) = NotificationsSink::new(PeerId::random());
+		let (mut handle, stream) = proto.split();
+		let peer_id = PeerId::random();
+
+		// validate inbound substream
+		let result_rx = handle.report_incoming_substream(peer_id, vec![1, 3, 3, 7]).await.unwrap();
+
+		if let Some(NotificationEvent::ValidateInboundSubstream { peer, handshake, result_tx }) =
+			notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(handshake, vec![1, 3, 3, 7]);
+			result_tx.send(ValidationResult::Accept);
+		} else {
+			panic!("invalid event received");
+		}
+		assert_eq!(result_rx.await.unwrap(), ValidationResult::Accept);
+
+		// report that a substream has been opened
+		handle
+			.report_substream_opened(peer_id, ObservedRole::Full, None, sink)
+			.await
+			.unwrap();
+
+		if let Some(NotificationEvent::NotificationStreamOpened {
+			peer,
+			role,
+			negotiated_fallback,
+		}) = notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(negotiated_fallback, None);
+			assert_eq!(role, ObservedRole::Full);
+		} else {
+			panic!("invalid event received");
+		}
+
+		// notification is received
+		handle.report_notification_received(peer_id, vec![1, 3, 3, 8]).await.unwrap();
+
+		if let Some(NotificationEvent::NotificationReceived { peer, notification }) =
+			notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(notification, vec![1, 3, 3, 8]);
+		} else {
+			panic!("invalid event received");
+		}
+	}
+
+	#[tokio::test]
+	async fn backpressure_works() {
+		let (proto, mut notif) = notification_service();
+		let (sink, mut async_rx, _) = NotificationsSink::new(PeerId::random());
+		let (mut handle, stream) = proto.split();
+		let peer_id = PeerId::random();
+
+		// validate inbound substream
+		let result_rx = handle.report_incoming_substream(peer_id, vec![1, 3, 3, 7]).await.unwrap();
+
+		if let Some(NotificationEvent::ValidateInboundSubstream { peer, handshake, result_tx }) =
+			notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(handshake, vec![1, 3, 3, 7]);
+			result_tx.send(ValidationResult::Accept);
+		} else {
+			panic!("invalid event received");
+		}
+		assert_eq!(result_rx.await.unwrap(), ValidationResult::Accept);
+
+		// report that a substream has been opened
+		handle
+			.report_substream_opened(peer_id, ObservedRole::Full, None, sink)
+			.await
+			.unwrap();
+
+		if let Some(NotificationEvent::NotificationStreamOpened {
+			peer,
+			role,
+			negotiated_fallback,
+		}) = notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(negotiated_fallback, None);
+			assert_eq!(role, ObservedRole::Full);
+		} else {
+			panic!("invalid event received");
+		}
+
+		// fill the message buffer with messages
+		for i in 0..=ASYNC_NOTIFICATIONS_BUFFER_SIZE {
+			assert!(
+				futures::poll!(notif.send_async_notification(&peer_id, vec![1, 3, 3, i as u8]))
+					.is_ready()
+			);
+		}
+
+		// try to send one more message and verify that the call blocks
+		assert!(
+			futures::poll!(notif.send_async_notification(&peer_id, vec![1, 3, 3, 9])).is_pending()
+		);
+
+		// release one slot from the buffer for new message
+		assert_eq!(
+			async_rx.next().await,
+			Some(NotificationsSinkMessage::Notification { message: vec![1, 3, 3, 0] })
+		);
+
+		// verify that a message can be sent
+		assert!(
+			futures::poll!(notif.send_async_notification(&peer_id, vec![1, 3, 3, 9])).is_ready()
+		);
+	}
+
+	#[tokio::test]
+	async fn peer_disconnects_then_sync_notification_is_sent() {
+		let (proto, mut notif) = notification_service();
+		let (sink, _, mut sync_rx) = NotificationsSink::new(PeerId::random());
+		let (mut handle, stream) = proto.split();
+		let peer_id = PeerId::random();
+
+		// validate inbound substream
+		let result_rx = handle.report_incoming_substream(peer_id, vec![1, 3, 3, 7]).await.unwrap();
+
+		if let Some(NotificationEvent::ValidateInboundSubstream { peer, handshake, result_tx }) =
+			notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(handshake, vec![1, 3, 3, 7]);
+			result_tx.send(ValidationResult::Accept);
+		} else {
+			panic!("invalid event received");
+		}
+		assert_eq!(result_rx.await.unwrap(), ValidationResult::Accept);
+
+		// report that a substream has been opened
+		handle
+			.report_substream_opened(peer_id, ObservedRole::Full, None, sink)
+			.await
+			.unwrap();
+
+		if let Some(NotificationEvent::NotificationStreamOpened {
+			peer,
+			role,
+			negotiated_fallback,
+		}) = notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(negotiated_fallback, None);
+			assert_eq!(role, ObservedRole::Full);
+		} else {
+			panic!("invalid event received");
+		}
+
+		// report that a substream has been closed but don't poll `notif` to receive this
+		// information
+		handle.report_substream_closed(peer_id).await.unwrap();
+		drop(sync_rx);
+
+		// as per documentation, error is not reported but the notification is silently dropped
+		assert!(notif.send_sync_notification(&peer_id, vec![1, 3, 3, 7]).is_ok());
+	}
+
+	#[tokio::test]
+	async fn peer_disconnects_then_async_notification_is_sent() {
+		let (proto, mut notif) = notification_service();
+		let (sink, mut async_rx, _) = NotificationsSink::new(PeerId::random());
+		let (mut handle, stream) = proto.split();
+		let peer_id = PeerId::random();
+
+		// validate inbound substream
+		let result_rx = handle.report_incoming_substream(peer_id, vec![1, 3, 3, 7]).await.unwrap();
+
+		if let Some(NotificationEvent::ValidateInboundSubstream { peer, handshake, result_tx }) =
+			notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(handshake, vec![1, 3, 3, 7]);
+			result_tx.send(ValidationResult::Accept);
+		} else {
+			panic!("invalid event received");
+		}
+		assert_eq!(result_rx.await.unwrap(), ValidationResult::Accept);
+
+		// report that a substream has been opened
+		handle
+			.report_substream_opened(peer_id, ObservedRole::Full, None, sink)
+			.await
+			.unwrap();
+
+		if let Some(NotificationEvent::NotificationStreamOpened {
+			peer,
+			role,
+			negotiated_fallback,
+		}) = notif.next_event().await
+		{
+			assert_eq!(peer_id, peer);
+			assert_eq!(negotiated_fallback, None);
+			assert_eq!(role, ObservedRole::Full);
+		} else {
+			panic!("invalid event received");
+		}
+
+		// report that a substream has been closed but don't poll `notif` to receive this
+		// information
+		handle.report_substream_closed(peer_id).await.unwrap();
+		drop(async_rx);
+
+		// as per documentation, error is not reported but the notification is silently dropped
+		if let Err(error::Error::ConnectionClosed) =
+			notif.send_async_notification(&peer_id, vec![1, 3, 3, 7]).await
+		{
+		} else {
+			panic!("invalid state after calling `send_async_notificatio()` on closed connection")
+		}
 	}
 }

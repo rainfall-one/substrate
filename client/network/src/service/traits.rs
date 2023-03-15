@@ -20,6 +20,7 @@
 
 use crate::{
 	config::MultiaddrWithPeerId,
+	error,
 	event::Event,
 	request_responses::{IfDisconnected, RequestFailure},
 	service::signature::Signature,
@@ -635,6 +636,7 @@ where
 }
 
 /// Substream acceptance result.
+#[derive(Debug, PartialEq, Eq)]
 pub enum ValidationResult {
 	/// Accept inbound substream.
 	Accept,
@@ -644,6 +646,7 @@ pub enum ValidationResult {
 }
 
 /// Events received by the protocol from `Notifications`.
+#[derive(Debug)]
 pub enum NotificationEvent {
 	/// Validate inbound substream.
 	ValidateInboundSubstream {
@@ -654,7 +657,7 @@ pub enum NotificationEvent {
 		handshake: Vec<u8>,
 
 		/// `oneshot::Sender` for sending validation result back to `Notifications`
-		result_tx: oneshot::Sender<ValidationResult>,
+		result_tx: tokio::sync::oneshot::Sender<ValidationResult>,
 	},
 
 	/// Remote identified by `PeerId` opened a substream and sent `Handshake`.
@@ -737,14 +740,18 @@ pub trait NotificationService: Debug + Send {
 	async fn close_substream(&mut self, peer: PeerId) -> Result<(), ()>;
 
 	/// Send synchronous `notification` to `peer`.
-	fn send_sync_notification(&mut self, peer: PeerId, notification: Vec<u8>) -> Result<(), ()>;
+	fn send_sync_notification(
+		&self,
+		peer: &PeerId,
+		notification: Vec<u8>,
+	) -> Result<(), error::Error>;
 
 	/// Send asynchronous `notification` to `peer`, allowing sender to exercise backpressure.
 	async fn send_async_notification(
-		&mut self,
-		peer: PeerId,
+		&self,
+		peer: &PeerId,
 		notification: Vec<u8>,
-	) -> Result<(), ()>;
+	) -> Result<(), error::Error>;
 
 	/// Set handshake for the notification protocol replacing the old handshake.
 	async fn set_hanshake(&mut self, handshake: Vec<u8>) -> Result<(), ()>;

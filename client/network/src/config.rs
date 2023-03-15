@@ -22,7 +22,7 @@
 //! See the documentation of [`Params`].
 
 pub use crate::{
-	protocol::{notification_service, ProtocolHandle},
+	protocol::{notification_service, ProtocolHandlePair},
 	request_responses::{
 		IncomingRequest, OutgoingResponse, ProtocolConfig as RequestResponseConfig,
 	},
@@ -511,7 +511,7 @@ pub struct NonDefaultSetConfig {
 	/// `ProtocolHandle` is given to `Notifications` when it initializes itself. This handle allows
 	/// `Notifications ` to communicate with the protocol directly without relaying events through
 	/// `sc-network.`
-	protocol_handle: ProtocolHandle,
+	protocol_handle_pair: ProtocolHandlePair,
 }
 
 impl NonDefaultSetConfig {
@@ -524,7 +524,7 @@ impl NonDefaultSetConfig {
 		handshake: Option<NotificationHandshake>,
 		set_config: SetConfig,
 	) -> (Self, Box<dyn NotificationService>) {
-		let (protocol_handle, notification_handle) = notification_service();
+		let (protocol_handle_pair, notification_handle) = notification_service();
 		(
 			Self {
 				protocol_name,
@@ -532,7 +532,7 @@ impl NonDefaultSetConfig {
 				fallback_names,
 				handshake,
 				set_config,
-				protocol_handle,
+				protocol_handle_pair,
 			},
 			notification_handle,
 		)
