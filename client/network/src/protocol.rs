@@ -97,7 +97,7 @@ impl<B: BlockT> Protocol<B> {
 	pub fn new(
 		roles: Roles,
 		network_config: &mut config::NetworkConfiguration,
-		block_announces_protocol: config::NonDefaultSetConfig,
+		mut block_announces_protocol: config::NonDefaultSetConfig,
 	) -> error::Result<(Self, sc_peerset::PeersetHandle, Vec<(PeerId, Multiaddr)>)> {
 		let mut known_addresses = Vec::new();
 
@@ -152,6 +152,7 @@ impl<B: BlockT> Protocol<B> {
 		};
 
 		let (behaviour, notification_protocols) = {
+			// TODO: ugly
 			let notification_protocols = std::mem::take(&mut network_config.extra_sets);
 			let installed_protocols = iter::once(block_announces_protocol.protocol_name().clone())
 				.chain(notification_protocols.iter().map(|p| p.protocol_name().clone()))
@@ -163,20 +164,35 @@ impl<B: BlockT> Protocol<B> {
 					// NOTE: Block announcement protocol is still very much hardcoded into
 					// `Protocol`. 	This protocol must be the first notification protocol given to
 					// `Notifications`
-					iter::once(notifications::ProtocolConfig {
-						name: block_announces_protocol.protocol_name().clone(),
-						fallback_names: block_announces_protocol
-							.fallback_names()
-							.cloned()
-							.collect(),
-						handshake: block_announces_protocol.handshake().as_ref().unwrap().to_vec(),
-						max_notification_size: block_announces_protocol.max_notification_size(),
-					})
-					.chain(notification_protocols.iter().map(|s| notifications::ProtocolConfig {
-						name: s.protocol_name().clone(),
-						fallback_names: s.fallback_names().cloned().collect(),
-						handshake: s.handshake().as_ref().map_or(roles.encode(), |h| (*h).to_vec()),
-						max_notification_size: s.max_notification_size(),
+					iter::once((
+						notifications::ProtocolConfig {
+							name: block_announces_protocol.protocol_name().clone(),
+							fallback_names: block_announces_protocol
+								.fallback_names()
+								.cloned()
+								.collect(),
+							handshake: block_announces_protocol
+								.handshake()
+								.as_ref()
+								.unwrap()
+								.to_vec(),
+							max_notification_size: block_announces_protocol.max_notification_size(),
+						},
+						block_announces_protocol.take_protocol_handle(),
+					))
+					.chain(notification_protocols.into_iter().map(|mut s| {
+						(
+							notifications::ProtocolConfig {
+								name: s.protocol_name().clone(),
+								fallback_names: s.fallback_names().cloned().collect(),
+								handshake: s
+									.handshake()
+									.as_ref()
+									.map_or(roles.encode(), |h| (*h).to_vec()),
+								max_notification_size: s.max_notification_size(),
+							},
+							s.take_protocol_handle(),
+						)
 					})),
 				),
 				installed_protocols,
