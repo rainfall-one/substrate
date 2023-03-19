@@ -123,29 +123,45 @@ fn brute_force() {
 	new_test_ext().execute_with(|| {
 		// check if this is ever true:
 		// from_rational_with_rounding(amount, denom, Rounding::NearestPrefDown) * denom > amount
-		use rand::SeedableRng;
-
-		use rand::Rng;
-		use sp_arithmetic::{Perbill, Rounding};
+		use rand::{Rng, SeedableRng};
+		use rayon::prelude::*;
+		use sp_arithmetic::{Perquintill, Rounding};
 		use sp_runtime::{traits::Saturating, PerThing};
 
-		let mut rng = rand::rngs::SmallRng::seed_from_u64(42);
-		for _ in 0..1_000_000 {
-			for _ in 0..1_000_000 {
+		(0..320).into_par_iter().for_each(|i| {
+			// thread rng
+			let mut rng = rand::rngs::SmallRng::seed_from_u64(i);
+
+			for _ in 0..10_000_000 {
 				let amount: u128 = rng.gen::<u128>().saturating_add(1);
 				let denom: u128 = rng.gen::<u128>().saturating_add(amount);
 
-				let r =
-					Perbill::from_rational_with_rounding(amount, denom, Rounding::NearestPrefDown)
-						.expect(format!("{:?} / {}", amount, denom).as_str());
-				if r * denom > amount {
-					panic!(
-						"from_rational_with_rounding({}, {}, Rounding::NearestPrefDown) * {} > {}",
-						amount, denom, denom, amount
+				let perfect_ratio = (amount as f64) / (denom as f64);
+				let perfect_parts = Perquintill::ACCURACY as f64 * perfect_ratio;
+
+				let approx_ratio = Perquintill::from_rational_with_rounding(
+					amount,
+					denom,
+					Rounding::Down,
+				)
+				.expect(format!("{:?} / {}", amount, denom).as_str());
+				let approx_parts = approx_ratio.clone().deconstruct();
+
+				let diff = (approx_parts as f64) - perfect_parts;
+
+				if diff > 0.0 {
+					println!(
+						"TO LARGE amount = {}, denom = {}, fraction: r: {:?}, perfect_parts: {}, actual_parts: {}, diff: {}",
+						amount, denom, perfect_ratio, perfect_parts, approx_parts, diff
+					);
+				} else if diff < 0.0 {
+					println!(
+						"TO SMALL amount = {}, denom = {}, fraction: r: {:?}, perfect_parts: {}, actual_parts: {}, diff: {}",
+						amount, denom, perfect_ratio, perfect_parts, approx_parts, diff
 					);
 				}
 			}
-		}
+		});
 	});
 }
 

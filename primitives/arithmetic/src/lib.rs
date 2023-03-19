@@ -447,6 +447,20 @@ mod threshold_compare_tests {
 	}
 
 	#[test]
+	fn regress() {
+		let amount = 103529468660273175580936690664562736814u128;
+		let denom = 340282366920938463463374607431768211455u128;
+
+		let a =
+			Perbill::from_rational_with_rounding(amount, denom, Rounding::NearestPrefDown).unwrap();
+
+		let l = a * denom;
+		if l > amount {
+			panic!("wtf");
+		}
+	}
+
+	#[test]
 	fn epsilon_ord_works_with_small_epc() {
 		let b = 115u32;
 		// way less than 1 percent. threshold will be zero. Result should be same as normal ord.

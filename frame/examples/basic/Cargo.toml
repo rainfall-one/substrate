@@ -28,6 +28,7 @@ sp-std = { version = "5.0.0", default-features = false, path = "../../../primiti
 [dev-dependencies]
 sp-core = { version = "7.0.0", default-features = false, path = "../../../primitives/core" }
 rand = "0.8.5"
+rayon = "1.7.0"
 
 [features]
 default = ["std"]
