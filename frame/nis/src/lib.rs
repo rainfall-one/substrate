@@ -731,7 +731,8 @@ pub mod pallet {
 				summary.receipts_on_hold.saturating_reduce(on_hold);
 				on_hold = Zero::zero();
 				T::Currency::transfer(&our_account, &who, deficit, Expendable)
-					.map_err(|_| Error::<T>::Unfunded)?;
+					.map_err(|_| Error::<T>::Unfunded)
+					.unwrap();
 			} else {
 				on_hold.saturating_reduce(amount);
 				summary.receipts_on_hold.saturating_reduce(amount);
@@ -817,7 +818,8 @@ pub mod pallet {
 
 			// Try to transfer amount owed from pot to receipt owner.
 			T::Currency::transfer(&our_account, &who, amount, Expendable)
-				.map_err(|_| Error::<T>::Unfunded)?;
+				.map_err(|_| Error::<T>::Unfunded)
+				.unwrap();
 
 			Receipts::<T>::remove(index);
 			Summary::<T>::put(&summary);
@@ -852,7 +854,8 @@ pub mod pallet {
 			let reason = T::HoldReason::get();
 			let us = Self::account_id();
 			T::Currency::transfer_on_hold(&reason, &who, &us, on_hold, Exact, Free, Polite)
-				.map_err(|_| Error::<T>::Unfunded)?;
+				.map_err(|_| Error::<T>::Unfunded)
+				.unwrap();
 
 			// Record that we've moved the amount reserved.
 			let mut summary: SummaryRecordOf<T> = Summary::<T>::get();

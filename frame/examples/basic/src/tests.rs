@@ -119,6 +119,37 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 }
 
 #[test]
+fn brute_force() {
+	new_test_ext().execute_with(|| {
+		// check if this is ever true:
+		// from_rational_with_rounding(amount, denom, Rounding::NearestPrefDown) * denom > amount
+		use rand::SeedableRng;
+
+		use rand::Rng;
+		use sp_arithmetic::{Perbill, Rounding};
+		use sp_runtime::{traits::Saturating, PerThing};
+
+		let mut rng = rand::rngs::SmallRng::seed_from_u64(42);
+		for _ in 0..1_000_000 {
+			for _ in 0..1_000_000 {
+				let amount: u128 = rng.gen::<u128>().saturating_add(1);
+				let denom: u128 = rng.gen::<u128>().saturating_add(amount);
+
+				let r =
+					Perbill::from_rational_with_rounding(amount, denom, Rounding::NearestPrefDown)
+						.expect(format!("{:?} / {}", amount, denom).as_str());
+				if r * denom > amount {
+					panic!(
+						"from_rational_with_rounding({}, {}, Rounding::NearestPrefDown) * {} > {}",
+						amount, denom, denom, amount
+					);
+				}
+			}
+		}
+	});
+}
+
+#[test]
 fn it_works_for_optional_value() {
 	new_test_ext().execute_with(|| {
 		// Check that GenesisBuilder works properly.
