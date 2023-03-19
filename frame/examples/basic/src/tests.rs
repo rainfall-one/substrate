@@ -123,10 +123,11 @@ fn brute_force() {
 	new_test_ext().execute_with(|| {
 		// check if this is ever true:
 		// from_rational_with_rounding(amount, denom, Rounding::NearestPrefDown) * denom > amount
+		use f128::f128;
 		use rand::{Rng, SeedableRng};
 		use rayon::prelude::*;
 		use sp_arithmetic::{Perquintill, Rounding};
-		use sp_runtime::{traits::Saturating, PerThing};
+		use sp_runtime::{traits::Zero, PerThing};
 
 		(0..320).into_par_iter().for_each(|i| {
 			// thread rng
@@ -136,28 +137,25 @@ fn brute_force() {
 				let amount: u128 = rng.gen::<u128>().saturating_add(1);
 				let denom: u128 = rng.gen::<u128>().saturating_add(amount);
 
-				let perfect_ratio = (amount as f64) / (denom as f64);
-				let perfect_parts = Perquintill::ACCURACY as f64 * perfect_ratio;
+				let perfect_ratio = f128::from(amount) / f128::from(denom);
+				let perfect_parts = f128::from(Perquintill::ACCURACY) * perfect_ratio;
 
-				let approx_ratio = Perquintill::from_rational_with_rounding(
-					amount,
-					denom,
-					Rounding::Down,
-				)
-				.expect(format!("{:?} / {}", amount, denom).as_str());
+				let approx_ratio =
+					Perquintill::from_rational_with_rounding(amount, denom, Rounding::NearestPrefDown)
+						.expect(format!("{:?} / {}", amount, denom).as_str());
 				let approx_parts = approx_ratio.clone().deconstruct();
 
-				let diff = (approx_parts as f64) - perfect_parts;
+				let diff = f128::from(approx_parts) - perfect_parts;
 
-				if diff > 0.0 {
+				if diff > f128::zero() {
 					println!(
-						"TO LARGE amount = {}, denom = {}, ratio: {:?}, perfect_parts: {}, actual_parts: {}, diff: {}",
-						amount, denom, perfect_ratio, perfect_parts, approx_parts, diff
+						"TO LARGE amount = {}, denom = {}, ratio: {:?}, perfect_parts: {}, approx_parts: {}, diff: {}",
+						amount, denom, perfect_ratio, perfect_parts, f128::from(approx_parts), diff
 					);
-				} else if diff < 0.0 {
+				} else if diff < f128::zero() {
 					println!(
-						"TO SMALL amount = {}, denom = {}, ratio: {:?}, perfect_parts: {}, actual_parts: {}, diff: {}",
-						amount, denom, perfect_ratio, perfect_parts, approx_parts, diff
+						"TO SMALL amount = {}, denom = {}, ratio: {:?}, perfect_parts: {}, approx_parts: {}, diff: {}",
+						amount, denom, perfect_ratio, perfect_parts, f128::from(approx_parts), diff
 					);
 				}
 			}
