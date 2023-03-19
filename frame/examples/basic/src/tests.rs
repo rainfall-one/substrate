@@ -151,12 +151,12 @@ fn brute_force() {
 
 				if diff > 0.0 {
 					println!(
-						"TO LARGE amount = {}, denom = {}, fraction: r: {:?}, perfect_parts: {}, actual_parts: {}, diff: {}",
+						"TO LARGE amount = {}, denom = {}, ratio: {:?}, perfect_parts: {}, actual_parts: {}, diff: {}",
 						amount, denom, perfect_ratio, perfect_parts, approx_parts, diff
 					);
 				} else if diff < 0.0 {
 					println!(
-						"TO SMALL amount = {}, denom = {}, fraction: r: {:?}, perfect_parts: {}, actual_parts: {}, diff: {}",
+						"TO SMALL amount = {}, denom = {}, ratio: {:?}, perfect_parts: {}, actual_parts: {}, diff: {}",
 						amount, denom, perfect_ratio, perfect_parts, approx_parts, diff
 					);
 				}
