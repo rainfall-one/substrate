@@ -147,12 +147,12 @@ fn brute_force() {
 
 				let diff = f128::from(approx_parts) - perfect_parts;
 
-				if diff > f128::zero() {
+				if diff > f128::from(1) {
 					println!(
 						"TO LARGE amount = {}, denom = {}, ratio: {:?}, perfect_parts: {}, approx_parts: {}, diff: {}",
 						amount, denom, perfect_ratio, perfect_parts, f128::from(approx_parts), diff
 					);
-				} else if diff < f128::zero() {
+				} else if diff < f128::from(-1) {
 					println!(
 						"TO SMALL amount = {}, denom = {}, ratio: {:?}, perfect_parts: {}, approx_parts: {}, diff: {}",
 						amount, denom, perfect_ratio, perfect_parts, f128::from(approx_parts), diff
