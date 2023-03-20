@@ -451,12 +451,11 @@ mod threshold_compare_tests {
 		let amount = 103529468660273175580936690664562736814u128;
 		let denom = 340282366920938463463374607431768211455u128;
 
-		let a =
-			Perbill::from_rational_with_rounding(amount, denom, Rounding::NearestPrefDown).unwrap();
+		let a = Perbill::from_rational_with_rounding(amount, denom, Rounding::Down).unwrap();
 
-		let l = a * denom;
+		let l = a.mul_floor(denom);
 		if l > amount {
-			panic!("wtf");
+			panic!("amount: {:?}, denom: {:?}, a: {:?}, l: {:?}", amount, denom, a, l);
 		}
 	}
 

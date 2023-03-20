@@ -118,19 +118,52 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	t.into()
 }
 
+/// Test that this is never true:
+/// from_rational_with_rounding(amount, denom, Rounding::Down) * denom > amount
 #[test]
 fn brute_force() {
+	use f128::f128;
+	use rand::{Rng, SeedableRng};
+	use rayon::prelude::*;
+	use sp_arithmetic::{Perquintill, Rounding};
+	use sp_runtime::PerThing;
+
+	(0..320).into_par_iter().for_each(|i| {
+		let mut rng = rand::rngs::SmallRng::seed_from_u64(i);
+
+		for _ in 0..10_000_000 {
+			let amount: u128 = rng.gen::<u128>().saturating_add(1);
+			let denom: u128 = rng.gen::<u128>().saturating_add(amount);
+
+			let approx_ratio =
+				Perquintill::from_rational_with_rounding(amount, denom, Rounding::Down)
+					.expect(format!("{:?} / {}", amount, denom).as_str());
+			let approx_amount = approx_ratio.mul_floor(denom);
+
+			if approx_amount > amount {
+				panic!(
+					"TOO LARGE amount: {:?}, denom: {:?}, approx_amount: {:?}, diff: {:?}",
+					amount,
+					denom,
+					approx_amount,
+					approx_amount - amount,
+				);
+			}
+		}
+	});
+}
+
+#[test]
+fn brute_force_amount_check() {
 	new_test_ext().execute_with(|| {
-		// check if this is ever true:
-		// from_rational_with_rounding(amount, denom, Rounding::NearestPrefDown) * denom > amount
 		use f128::f128;
+		use num_traits::{float::Float, ToPrimitive};
 		use rand::{Rng, SeedableRng};
 		use rayon::prelude::*;
 		use sp_arithmetic::{Perquintill, Rounding};
-		use sp_runtime::{traits::Zero, PerThing};
+		use sp_runtime::PerThing;
 
 		(0..320).into_par_iter().for_each(|i| {
-			// thread rng
 			let mut rng = rand::rngs::SmallRng::seed_from_u64(i);
 
 			for _ in 0..10_000_000 {
@@ -138,24 +171,18 @@ fn brute_force() {
 				let denom: u128 = rng.gen::<u128>().saturating_add(amount);
 
 				let perfect_ratio = f128::from(amount) / f128::from(denom);
-				let perfect_parts = f128::from(Perquintill::ACCURACY) * perfect_ratio;
+				let perfect_parts =
+					(f128::from(Perquintill::ACCURACY) * perfect_ratio).floor().to_u128().unwrap();
 
 				let approx_ratio =
-					Perquintill::from_rational_with_rounding(amount, denom, Rounding::NearestPrefDown)
+					Perquintill::from_rational_with_rounding(amount, denom, Rounding::Down)
 						.expect(format!("{:?} / {}", amount, denom).as_str());
 				let approx_parts = approx_ratio.clone().deconstruct();
 
-				let diff = f128::from(approx_parts) - perfect_parts;
-
-				if diff > f128::from(1) {
-					println!(
-						"TO LARGE amount = {}, denom = {}, ratio: {:?}, perfect_parts: {}, approx_parts: {}, diff: {}",
-						amount, denom, perfect_ratio, perfect_parts, f128::from(approx_parts), diff
-					);
-				} else if diff < f128::from(-1) {
-					println!(
-						"TO SMALL amount = {}, denom = {}, ratio: {:?}, perfect_parts: {}, approx_parts: {}, diff: {}",
-						amount, denom, perfect_ratio, perfect_parts, f128::from(approx_parts), diff
+				if approx_parts != perfect_parts as u64 {
+					panic!(
+						"WRONG PARTS amount: {:?}, denom: {:?}, perfect_parts: {:?}, approx_parts: {:?}",
+						amount, denom, perfect_parts, approx_parts
 					);
 				}
 			}

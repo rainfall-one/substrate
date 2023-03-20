@@ -141,7 +141,6 @@ parameter_types! {
 	pub const HoldReason: HoldIdentifier = HoldIdentifier::Nis;
 }
 
-
 impl pallet_nis::Config for Test {
 	type WeightInfo = ();
 	type RuntimeEvent = RuntimeEvent;

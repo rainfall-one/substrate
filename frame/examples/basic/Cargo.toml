@@ -24,6 +24,7 @@ sp-arithmetic = { version = "6.0.0", default-features = false, path = "../../../
 sp-io = { version = "7.0.0", default-features = false, path = "../../../primitives/io" }
 sp-runtime = { version = "7.0.0", default-features = false, path = "../../../primitives/runtime" }
 sp-std = { version = "5.0.0", default-features = false, path = "../../../primitives/std" }
+num-traits = "0.2.15"
 
 [dev-dependencies]
 sp-core = { version = "7.0.0", default-features = false, path = "../../../primitives/core" }

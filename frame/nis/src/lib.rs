@@ -529,7 +529,12 @@ pub mod pallet {
 		fn integrity_test() {
 			assert!(!T::IntakePeriod::get().is_zero());
 			assert!(!T::MaxQueueLen::get().is_zero());
-			assert!(T::MinBid::get() > T::Currency::minimum_balance(), "Min bid: {:?}, ed: {:?}", T::MinBid::get(), T::Currency::minimum_balance());
+			assert!(
+				T::MinBid::get() > T::Currency::minimum_balance(),
+				"Min bid: {:?}, ed: {:?}",
+				T::MinBid::get(),
+				T::Currency::minimum_balance()
+			);
 		}
 	}
 
@@ -731,11 +736,10 @@ pub mod pallet {
 				let deficit = amount - on_hold;
 				// Try to transfer deficit from pot to receipt owner.
 				summary.receipts_on_hold.saturating_reduce(on_hold);
-				
-				
+
 				if T::Currency::transfer(&our_account, &who, deficit, Expendable).is_err() {
 					frame_support::log::error!("amount: {:?}, proportion: {:?}, effective_issuance: {:?}, deficit: {:?}, on_hold: {:?}, free: {:?}", amount, proportion, effective_issuance, deficit, on_hold, my_balance);
-					return Err(Error::<T>::Unfunded.into());
+					return Err(Error::<T>::Unfunded.into())
 				}
 				on_hold = Zero::zero();
 			} else {

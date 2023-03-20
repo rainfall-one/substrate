@@ -423,6 +423,17 @@ pub enum Rounding {
 	NearestPrefDown,
 }
 
+impl Rounding {
+	pub fn inverse(&self) -> Self {
+		match self {
+			Rounding::Up => Rounding::Down,
+			Rounding::Down => Rounding::Up,
+			Rounding::NearestPrefUp => Rounding::NearestPrefDown,
+			Rounding::NearestPrefDown => Rounding::NearestPrefUp,
+		}
+	}
+}
+
 /// The rounding method to use.
 #[derive(Copy, Clone, sp_std::fmt::Debug)]
 pub enum SignedRounding {
@@ -695,17 +706,17 @@ macro_rules! implement_per_thing {
 				// p should not be bigger than q.
 				if p > q { return Err(()) }
 
-				let factor = div_rounded::<N>(q.clone(), $max.into(), Rounding::Up).max(One::one());
+				let factor = div_rounded::<N>(q.clone(), $max.into(), r.inverse()).max(One::one());
 
 				// q cannot overflow: (q / (q/$max)) < $max. p < q hence p also cannot overflow.
-				let q_reduce: $type = div_rounded(q, factor.clone(), r)
+				let q_reduce: $type = div_rounded(q, factor.clone(), Rounding::Down)
 					.try_into()
 					.map_err(|_| "Failed to convert")
 					.expect(
 						"`q / ceil(q/$max) < $max`; macro prevents any type being created that \
 						does not satisfy this; qed"
 					);
-				let p_reduce: $type = div_rounded(p, factor, r)
+				let p_reduce: $type = div_rounded(p, factor, Rounding::NearestPrefDown)
 					.try_into()
 					.map_err(|_| "Failed to convert")
 					.expect(
@@ -1368,6 +1379,7 @@ macro_rules! implement_per_thing {
 				assert_eq!(
 					$name::from_rational(max_value - 1, max_value + 1),
 					$name::from_parts($max - 2),
+					"why"
 				);
 				assert_eq!(
 					$name::from_rational(1, $max - 1),

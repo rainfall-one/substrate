@@ -182,7 +182,7 @@ benchmarks! {
 		//Nis::<T>::place_bid(RawOrigin::Signed(caller.clone()).into(), bid, 1)?;
 		Nis::<T>::process_queues(Perquintill::one(), 1, 1, &mut WeightCounter::unlimited());
 		frame_system::Pallet::<T>::set_block_number(Receipts::<T>::get(0).unwrap().expiry);
-		
+
 		Nis::<T>::communify(RawOrigin::Signed(caller.clone()).into(), 0)?;
 	}:  {}
 	verify {
