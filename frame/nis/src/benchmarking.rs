@@ -157,7 +157,7 @@ benchmarks! {
 		let caller: T::AccountId = whitelisted_caller();
 		let bid = T::MinBid::get().max(One::one());
 		let ed = T::Currency::minimum_balance();
-		T::Currency::set_balance(&caller, ed + bid + bid);
+		T::Currency::set_balance(&caller, BalanceOf::<T>::max_value() / 100u32.into());
 		// Ensure we don't get throttled.
 		T::Currency::set_balance(&whale, T::ThawThrottle::get().0.saturating_reciprocal_mul_ceil(T::Currency::balance(&caller)));
 		Nis::<T>::place_bid(RawOrigin::Signed(caller.clone()).into(), bid, 1)?;
@@ -177,7 +177,7 @@ benchmarks! {
 		let caller: T::AccountId = whitelisted_caller();
 		let bid = T::MinBid::get().max(One::one());
 		let ed = T::Currency::minimum_balance();
-		T::Currency::set_balance(&caller, ed + bid + bid);
+		T::Currency::set_balance(&caller, BalanceOf::<T>::max_value() / 100u32.into());
 		// Ensure we don't get throttled.
 		T::Currency::set_balance(&whale, T::ThawThrottle::get().0.saturating_reciprocal_mul_ceil(T::Currency::balance(&caller)));
 		Nis::<T>::place_bid(RawOrigin::Signed(caller.clone()).into(), bid, 1)?;
