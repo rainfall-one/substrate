@@ -529,6 +529,7 @@ pub mod pallet {
 		fn integrity_test() {
 			assert!(!T::IntakePeriod::get().is_zero());
 			assert!(!T::MaxQueueLen::get().is_zero());
+			assert!(T::MinBid::get() > T::Currency::minimum_balance(), "Min bid: {:?}, ed: {:?}", T::MinBid::get(), T::Currency::minimum_balance());
 		}
 	}
 
@@ -714,6 +715,7 @@ pub mod pallet {
 
 			// Multiply the proportion it is by the total issued.
 			let our_account = Self::account_id();
+			let my_balance = T::Currency::balance(&our_account);
 			let effective_issuance = Self::issuance_with(&our_account, &summary).effective;
 			//			let amount = proportion.mul_ceil(effective_issuance);
 			let amount = proportion * effective_issuance;
@@ -729,10 +731,13 @@ pub mod pallet {
 				let deficit = amount - on_hold;
 				// Try to transfer deficit from pot to receipt owner.
 				summary.receipts_on_hold.saturating_reduce(on_hold);
+				
+				
+				if T::Currency::transfer(&our_account, &who, deficit, Expendable).is_err() {
+					frame_support::log::error!("amount: {:?}, proportion: {:?}, effective_issuance: {:?}, deficit: {:?}, on_hold: {:?}, free: {:?}", amount, proportion, effective_issuance, deficit, on_hold, my_balance);
+					return Err(Error::<T>::Unfunded.into());
+				}
 				on_hold = Zero::zero();
-				T::Currency::transfer(&our_account, &who, deficit, Expendable)
-					.map_err(|_| Error::<T>::Unfunded)
-					.unwrap();
 			} else {
 				on_hold.saturating_reduce(amount);
 				summary.receipts_on_hold.saturating_reduce(amount);

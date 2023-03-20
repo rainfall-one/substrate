@@ -1510,20 +1510,20 @@ parameter_types! {
 }
 
 impl pallet_nis::Config for Runtime {
-	type WeightInfo = pallet_nis::weights::SubstrateWeight<Runtime>;
+	type WeightInfo = weights::pallet_nis::WeightInfo<Runtime>;
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type CurrencyBalance = Balance;
 	type FundOrigin = frame_system::EnsureSigned<AccountId>;
-	type Counterpart = ItemOf<Assets, ConstU32<9u32>, AccountId>;
+	type Counterpart = NisCounterpartBalances;
 	type CounterpartAmount = WithMaximumOf<ConstU128<21_000_000_000_000_000_000u128>>;
-	type Deficit = ();
+	type Deficit = (); // Mint
 	type IgnoredIssuance = ();
-	type Target = Target;
+	type Target = NisTarget;
 	type PalletId = NisPalletId;
-	type QueueCount = QueueCount;
-	type MaxQueueLen = MaxQueueLen;
-	type FifoQueueLen = FifoQueueLen;
+	type QueueCount = ConstU32<500>;
+	type MaxQueueLen = ConstU32<1000>;
+	type FifoQueueLen = ConstU32<250>;
 	type BasePeriod = NisBasePeriod;
 	type MinBid = MinBid;
 	type MinReceipt = MinReceipt;
@@ -1531,6 +1531,27 @@ impl pallet_nis::Config for Runtime {
 	type MaxIntakeWeight = MaxIntakeWeight;
 	type ThawThrottle = ThawThrottle;
 	type HoldReason = NisHoldReason;
+}
+
+type NisCounterpartInstance = pallet_balances::Instance2;
+impl pallet_balances::Config<NisCounterpartInstance> for Runtime {
+	type Balance = Balance;
+	type DustRemoval = ();
+	type RuntimeEvent = RuntimeEvent;
+	type ExistentialDeposit = ConstU128<10_000_000_000>; // One KTC cent
+	type AccountStore = StorageMapShim<
+		pallet_balances::Account<Runtime, NisCounterpartInstance>,
+		AccountId,
+		pallet_balances::AccountData<u128>,
+	>;
+	type MaxLocks = ConstU32<4>;
+	type MaxReserves = ConstU32<4>;
+	type ReserveIdentifier = [u8; 8];
+	type WeightInfo = weights::pallet_balances_nis_counterpart_balances::WeightInfo<Runtime>;
+	type HoldIdentifier = ();
+	type FreezeIdentifier = ();
+	type MaxHolds = ConstU32<0>;
+	type MaxFreezes = ConstU32<0>;
 }
 
 parameter_types! {
@@ -1793,6 +1814,7 @@ construct_runtime!(
 		Mmr: pallet_mmr,
 		Lottery: pallet_lottery,
 		Nis: pallet_nis,
+		NisCounterpartBalances: pallet_balances::<Instance2> = 45,
 		Uniques: pallet_uniques,
 		Nfts: pallet_nfts,
 		Salary: pallet_salary,

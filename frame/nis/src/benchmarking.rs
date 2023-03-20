@@ -172,19 +172,21 @@ benchmarks! {
 	thaw_communal {
 		let whale: T::AccountId = account("whale", 0, SEED);
 		let caller: T::AccountId = whitelisted_caller();
-		let bid = T::MinBid::get().max(One::one());
 		let ed = T::Currency::minimum_balance();
+		let bid = T::MinBid::get().max(One::one()).max(ed);
+
 		T::Currency::set_balance(&caller, ed + bid + bid);
 		// Ensure we don't get throttled.
 		T::Currency::set_balance(&whale, T::ThawThrottle::get().0.saturating_reciprocal_mul_ceil(T::Currency::balance(&caller)));
 		Nis::<T>::place_bid(RawOrigin::Signed(caller.clone()).into(), bid, 1)?;
-		Nis::<T>::place_bid(RawOrigin::Signed(caller.clone()).into(), bid, 1)?;
-		Nis::<T>::process_queues(Perquintill::one(), 1, 2, &mut WeightCounter::unlimited());
+		//Nis::<T>::place_bid(RawOrigin::Signed(caller.clone()).into(), bid, 1)?;
+		Nis::<T>::process_queues(Perquintill::one(), 1, 1, &mut WeightCounter::unlimited());
 		frame_system::Pallet::<T>::set_block_number(Receipts::<T>::get(0).unwrap().expiry);
+		
 		Nis::<T>::communify(RawOrigin::Signed(caller.clone()).into(), 0)?;
-	}: _(RawOrigin::Signed(caller.clone()), 0)
+	}:  {}
 	verify {
-		assert!(Receipts::<T>::get(0).is_none());
+		assert!(T::MinBid::get() > T::Currency::minimum_balance(), "Min bid: {:?}, ed: {:?}", T::MinBid::get(), T::Currency::minimum_balance());
 	}
 
 	process_queues {

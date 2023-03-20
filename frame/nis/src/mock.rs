@@ -40,7 +40,7 @@ use sp_runtime::{
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
 
-pub type Balance = u64;
+pub type Balance = u128;
 
 // Configure a mock runtime to test the pallet.
 frame_support::construct_runtime!(
@@ -51,8 +51,8 @@ frame_support::construct_runtime!(
 	{
 		System: frame_system,
 		Balances: pallet_balances::<Instance1>,
-		NisBalances: pallet_balances::<Instance2>,
 		Nis: pallet_nis,
+		NisBalances: pallet_balances::<Instance2> = 45,
 	}
 );
 
@@ -83,11 +83,32 @@ impl frame_system::Config for Test {
 	type MaxConsumers = ConstU32<16>;
 }
 
+type NisCounterpartInstance = pallet_balances::Instance2;
+impl pallet_balances::Config<NisCounterpartInstance> for Test {
+	type Balance = Balance;
+	type DustRemoval = ();
+	type RuntimeEvent = RuntimeEvent;
+	type ExistentialDeposit = ConstU128<50>; // One KTC cent
+	type AccountStore = StorageMapShim<
+		pallet_balances::Account<Test, NisCounterpartInstance>,
+		Self::AccountId,
+		pallet_balances::AccountData<u128>,
+	>;
+	type MaxLocks = ConstU32<4>;
+	type MaxReserves = ConstU32<4>;
+	type ReserveIdentifier = [u8; 8];
+	type WeightInfo = ();
+	type HoldIdentifier = ();
+	type FreezeIdentifier = ();
+	type MaxHolds = ConstU32<0>;
+	type MaxFreezes = ConstU32<0>;
+}
+
 impl pallet_balances::Config<Instance1> for Test {
 	type Balance = Balance;
 	type DustRemoval = ();
 	type RuntimeEvent = RuntimeEvent;
-	type ExistentialDeposit = ConstU64<1>;
+	type ExistentialDeposit = ConstU128<10>;
 	type AccountStore = System;
 	type WeightInfo = ();
 	type MaxLocks = ();
@@ -106,60 +127,41 @@ pub enum HoldIdentifier {
 	Nis,
 }
 
-impl pallet_balances::Config<Instance2> for Test {
-	type Balance = u128;
-	type DustRemoval = ();
-	type RuntimeEvent = RuntimeEvent;
-	type ExistentialDeposit = ConstU128<1>;
-	type AccountStore = StorageMapShim<
-		pallet_balances::Account<Test, Instance2>,
-		u64,
-		pallet_balances::AccountData<u128>,
-	>;
-	type WeightInfo = ();
-	type MaxLocks = ();
-	type MaxReserves = ();
-	type ReserveIdentifier = [u8; 8];
-	type FreezeIdentifier = ();
-	type MaxFreezes = ();
-	type HoldIdentifier = ();
-	type MaxHolds = ();
-}
-
-parameter_types! {
-	pub IgnoredIssuance: Balance = Balances::total_balance(&0); // Account zero is ignored.
-	pub const NisPalletId: PalletId = PalletId(*b"py/nis  ");
-	pub static Target: Perquintill = Perquintill::zero();
-	pub const MinReceipt: Perquintill = Perquintill::from_percent(1);
-	pub const ThawThrottle: (Perquintill, u64) = (Perquintill::from_percent(25), 5);
-	pub static MaxIntakeWeight: Weight = Weight::from_parts(2_000_000_000_000, 0);
-	pub const HoldReason: HoldIdentifier = HoldIdentifier::Nis;
-}
-
 ord_parameter_types! {
 	pub const One: u64 = 1;
 }
 
+parameter_types! {
+	pub static Target: Perquintill = Perquintill::zero();
+	pub MinReceipt: Perquintill = Perquintill::from_rational(1u64, 10_000_000u64);
+	pub const ThawThrottle: (Perquintill, u64) = (Perquintill::from_percent(25), 5);
+	pub storage NisTarget: Perquintill = Perquintill::zero();
+	pub const NisPalletId: PalletId = PalletId(*b"py/nis  ");
+	pub static MaxIntakeWeight: Weight = Weight::from_parts(2_000_000_000_000, 0);
+	pub const HoldReason: HoldIdentifier = HoldIdentifier::Nis;
+}
+
+
 impl pallet_nis::Config for Test {
 	type WeightInfo = ();
 	type RuntimeEvent = RuntimeEvent;
-	type PalletId = NisPalletId;
 	type Currency = Balances;
-	type CurrencyBalance = <Self as pallet_balances::Config<Instance1>>::Balance;
+	type CurrencyBalance = Balance;
 	type FundOrigin = frame_system::EnsureSigned<Self::AccountId>;
-	type Deficit = ();
-	type IgnoredIssuance = IgnoredIssuance;
 	type Counterpart = NisBalances;
-	type CounterpartAmount = WithMaximumOf<ConstU128<21_000_000u128>>;
-	type Target = Target;
-	type QueueCount = ConstU32<3>;
-	type MaxQueueLen = ConstU32<3>;
-	type FifoQueueLen = ConstU32<1>;
+	type CounterpartAmount = WithMaximumOf<ConstU128<21_000_000_000_000_000_000u128>>;
+	type Deficit = (); // Mint
+	type IgnoredIssuance = ();
+	type Target = NisTarget;
+	type PalletId = NisPalletId;
+	type QueueCount = ConstU32<500>;
+	type MaxQueueLen = ConstU32<1000>;
+	type FifoQueueLen = ConstU32<250>;
 	type BasePeriod = ConstU64<3>;
-	type MinBid = ConstU64<2>;
+	type MinBid = ConstU128<2>;
+	type MinReceipt = MinReceipt;
 	type IntakePeriod = ConstU64<2>;
 	type MaxIntakeWeight = MaxIntakeWeight;
-	type MinReceipt = MinReceipt;
 	type ThawThrottle = ThawThrottle;
 	type HoldReason = HoldReason;
 }
