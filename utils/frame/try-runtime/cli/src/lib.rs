@@ -388,7 +388,7 @@ use sp_runtime::{
 	traits::{BlakeTwo256, Block as BlockT, NumberFor},
 	DeserializeOwned, Digest,
 };
-use sp_state_machine::{CompactProof, OverlayedChanges, StateMachine, TrieBackendBuilder};
+use sp_state_machine::{OverlayedChanges, StateMachine, TrieBackendBuilder};
 use sp_version::StateVersion;
 use std::{fmt::Debug, path::PathBuf, str::FromStr};
 
