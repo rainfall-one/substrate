@@ -962,7 +962,7 @@ pub(crate) fn state_machine_call_with_proof<Block: BlockT, HostFns: HostFunction
 			log::error!(target: LOG_TARGET, "failed to generate compact proof {}: {:?}", method, e);
 			e
 		})
-		.unwrap_or_default();
+		.unwrap_or_default()
 	};
 
 	let compact_proof_size = compact_proof.encoded_size();
