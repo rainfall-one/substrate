@@ -952,14 +952,18 @@ pub(crate) fn state_machine_call_with_proof<Block: BlockT, HostFns: HostFunction
 	}
 
 	let proof_size = proof.encoded_size();
-	let compact_proof = proof
-		.clone()
-		.into_compact_proof::<sp_runtime::traits::BlakeTwo256>(pre_root)
+	let compact_proof = if proof_size == 0 {
+		// If there is no proof we better dont try to compact it, otherwise it errors.
+		Default::default()
+	}else {
+		proof
+		.to_compact_proof::<sp_runtime::traits::BlakeTwo256>(pre_root)
 		.map_err(|e| {
 			log::error!(target: LOG_TARGET, "failed to generate compact proof {}: {:?}", method, e);
 			e
 		})
-		.unwrap_or(CompactProof { encoded_nodes: Default::default() });
+		.unwrap_or_default();
+	};
 
 	let compact_proof_size = compact_proof.encoded_size();
 	let compressed_proof = zstd::stream::encode_all(&compact_proof.encode()[..], 0)
