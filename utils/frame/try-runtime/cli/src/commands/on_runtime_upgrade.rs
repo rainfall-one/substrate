@@ -40,8 +40,8 @@ pub struct OnRuntimeUpgradeCmd {
 	/// Performing any checks will potentially invalidate the measured PoV/Weight.
 	// NOTE: The clap attributes make it backwards compatible with the previous `--checks` flag.
 	#[clap(long,
-		default_value_t = UpgradeCheckSelect::PreAndPost,
-		default_missing_value_t = UpgradeCheckSelect::All,
+		default_value = "PreAndPost",
+		default_missing_value = "All",
 		num_args = 0..=1,
 		require_equals = true,
 		verbatim_doc_comment)]

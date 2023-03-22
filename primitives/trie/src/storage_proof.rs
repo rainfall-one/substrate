@@ -147,6 +147,7 @@ impl<H: Hasher> From<&StorageProof> for crate::MemoryDB<H> {
 
 /// Storage proof in compact form.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, TypeInfo)]
+#[cfg_attr(feature = "try-runtime", derive(Default))]
 pub struct CompactProof {
 	pub encoded_nodes: Vec<Vec<u8>>,
 }
