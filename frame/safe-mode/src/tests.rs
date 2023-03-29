@@ -39,15 +39,15 @@ macro_rules! hypothetically {
 	};
 }
 
-/// Assert something to be [*hypothetically*] `Ok`.
+/// Assert something to be would be [*hypothetically*] `Ok` without actually doing it.
+///
+/// Reverts any storage changes made by the closure.
 macro_rules! hypothetically_ok {
 	($e:expr $(, $args:expr)* $(,)?) => {
 		let result = hypothetically!($e);
 		assert_ok!(result $(, $args)*);
 	};
 }
-
-// GENERAL FAIL/NEGATIVE TESTS ---------------------
 
 #[test]
 fn fails_to_filter_calls_to_safe_mode_pallet() {
@@ -59,10 +59,9 @@ fn fails_to_filter_calls_to_safe_mode_pallet() {
 			call_transfer().dispatch(RuntimeOrigin::signed(0)),
 			frame_system::Error::<Test>::CallFiltered
 		);
-		// TODO ^^^ consider refactor to throw a safe mode error, not generic `CallFiltered`
 
 		next_block();
-		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(0)));
+		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(1)));
 		assert_ok!(SafeMode::force_extend(ForceExtendOrigin::Weak.signed()));
 		assert_err!(
 			call_transfer().dispatch(RuntimeOrigin::signed(0)),
@@ -231,64 +230,18 @@ fn can_activate() {
 }
 
 #[test]
-fn can_extend() {
+fn cannot_extend() {
 	new_test_ext().execute_with(|| {
 		assert_ok!(SafeMode::enter(RuntimeOrigin::signed(0)));
-		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(0)));
+		assert_err!(SafeMode::extend(RuntimeOrigin::signed(0)), Error::<Test>::AlreadyStaked);
 		assert_eq!(
 			SafeMode::active_until().unwrap(),
-			System::block_number() + mock::EnterDuration::get() + mock::ExtendDuration::get()
+			System::block_number() + mock::EnterDuration::get()
 		);
 		assert_eq!(
 			Balances::reserved_balance(0),
-			mock::EnterStakeAmount::get() + mock::ExtendStakeAmount::get()
+			mock::EnterStakeAmount::get()
 		);
-	});
-}
-
-#[test]
-fn can_extend_twice_in_same_block() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(SafeMode::enter(RuntimeOrigin::signed(0)));
-		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(0)));
-		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(0)));
-		assert_eq!(
-			SafeMode::active_until().unwrap(),
-			System::block_number() + mock::EnterDuration::get() + mock::ExtendDuration::get() * 2
-		);
-		assert_eq!(
-			Balances::reserved_balance(0),
-			mock::EnterStakeAmount::get() + mock::ExtendStakeAmount::get() * 2
-		);
-	});
-}
-
-#[test]
-fn can_release_independent_stakes_by_block() {
-	new_test_ext().execute_with(|| {
-		let activated_at_block_0 = System::block_number();
-		assert_ok!(SafeMode::enter(RuntimeOrigin::signed(0)));
-
-		run_to(mock::EnterDuration::get() + mock::ReleaseDelay::get() + activated_at_block_0 + 1);
-
-		let activated_at_block_1 = System::block_number();
-		assert_ok!(SafeMode::enter(RuntimeOrigin::signed(0)));
-
-		assert_eq!(Balances::free_balance(&0), 1234 - (2 * mock::EnterStakeAmount::get())); // accounts set in mock genesis
-
-		assert_ok!(SafeMode::force_exit(RuntimeOrigin::signed(mock::ForceExitOrigin::get())));
-
-		assert_ok!(SafeMode::release_stake(RuntimeOrigin::signed(2), 0, activated_at_block_0));
-		assert_err!(
-			SafeMode::release_stake(RuntimeOrigin::signed(2), 0, activated_at_block_1),
-			Error::<Test>::CannotReleaseYet
-		);
-		assert_eq!(Balances::free_balance(&0), 1234 - mock::EnterStakeAmount::get()); // accounts set in mock genesis
-
-		run_to(mock::EnterDuration::get() + mock::ReleaseDelay::get() + activated_at_block_1 + 1);
-
-		assert_ok!(SafeMode::release_stake(RuntimeOrigin::signed(2), 0, activated_at_block_1));
-		assert_eq!(<Balances as FunInspect<_>>::total_balance(&0), 1234); // accounts set in mock genesis
 	});
 }
 
@@ -401,7 +354,7 @@ fn can_force_release_stake_with_config_origin() {
 		Balances::make_free_balance_be(&0, 1234);
 		let activated_and_extended_at_block = System::block_number();
 		assert_ok!(SafeMode::enter(RuntimeOrigin::signed(0)));
-		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(0)));
+		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(1)));
 		run_to(
 			mock::EnterDuration::get() +
 				mock::ExtendDuration::get() +
@@ -489,13 +442,16 @@ fn can_slash_stake_while_entered() {
 fn can_slash_stake_from_extend_block() {
 	new_test_ext().execute_with(|| {
 		assert_ok!(SafeMode::enter(RuntimeOrigin::signed(0)));
-		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(0)));
+		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(1)));
 		assert_eq!(
 			Balances::free_balance(&0),
-			1234 - mock::EnterStakeAmount::get() - mock::ExtendStakeAmount::get()
+			1234 - mock::EnterStakeAmount::get()
+		);
+		assert_eq!(
+			Balances::free_balance(&1),
+			5678 - mock::ExtendStakeAmount::get()
 		);
 
-		// Now once we slash once since the enter and extend are treated as one stake.
 		assert_ok!(SafeMode::force_slash_stake(
 			RuntimeOrigin::signed(mock::StakeSlashOrigin::get()),
 			0,
@@ -503,12 +459,26 @@ fn can_slash_stake_from_extend_block() {
 		),);
 		assert_eq!(
 			Balances::free_balance(&0),
-			1234 - mock::ExtendStakeAmount::get() - mock::EnterStakeAmount::get()
+			1234 - mock::EnterStakeAmount::get()
+		);
+
+		assert_ok!(SafeMode::force_slash_stake(
+			RuntimeOrigin::signed(mock::StakeSlashOrigin::get()),
+			1,
+			1
+		),);
+		assert_eq!(
+			Balances::free_balance(&1),
+			5678 - mock::ExtendStakeAmount::get()
 		);
 
 		// But never again.
 		assert_err!(
 			SafeMode::force_slash_stake(RuntimeOrigin::signed(mock::StakeSlashOrigin::get()), 0, 1),
+			Error::<Test>::NoStake
+		);
+		assert_err!(
+			SafeMode::force_slash_stake(RuntimeOrigin::signed(mock::StakeSlashOrigin::get()), 1, 1),
 			Error::<Test>::NoStake
 		);
 	});
@@ -536,7 +506,7 @@ fn can_slash_stake_with_config_origin() {
 		Balances::make_free_balance_be(&0, 1234);
 		let activated_and_extended_at_block = System::block_number();
 		assert_ok!(SafeMode::enter(RuntimeOrigin::signed(0)));
-		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(0)));
+		assert_ok!(SafeMode::extend(RuntimeOrigin::signed(1)));
 		run_to(
 			mock::EnterDuration::get() +
 				mock::ExtendDuration::get() +
@@ -551,7 +521,7 @@ fn can_slash_stake_with_config_origin() {
 		));
 		assert_eq!(
 			Balances::free_balance(&0),
-			1234 - mock::EnterStakeAmount::get() - mock::ExtendStakeAmount::get()
+			1234 - mock::EnterStakeAmount::get()
 		); // accounts set in mock genesis
 	});
 }

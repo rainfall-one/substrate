@@ -23,6 +23,7 @@ mod tests;
 pub mod weights;
 
 use frame_support::{
+	defensive_assert,
 	pallet_prelude::*,
 	traits::{
 		fungible::{
@@ -37,6 +38,7 @@ use frame_support::{
 use frame_system::pallet_prelude::*;
 use sp_runtime::traits::Saturating;
 use sp_std::{convert::TryInto, prelude::*};
+use sp_arithmetic::traits::Zero;
 
 pub use pallet::*;
 pub use weights::*;
@@ -82,13 +84,13 @@ pub mod pallet {
 
 		/// The amount that will be reserved upon calling [`Pallet::enter`].
 		///
-		/// `None` disallows permissionlessly enabling the safe-mode.
+		/// `None` disallows permissionlessly enabling the safe-mode and is a sane default.
 		#[pallet::constant]
 		type EnterStakeAmount: Get<Option<BalanceOf<Self>>>;
 
 		/// The amount that will be reserved upon calling [`Pallet::extend`].
 		///
-		/// `None` disallows permissionlessly extending the safe-mode.
+		/// `None` disallows permissionlessly extending the safe-mode and is a sane default.
 		#[pallet::constant]
 		type ExtendStakeAmount: Get<Option<BalanceOf<Self>>>;
 
@@ -115,7 +117,7 @@ pub mod pallet {
 		/// Every stake is tied to a specific activation or extension, thus each stake
 		/// can be released independently after the delay for it has passed.
 		///
-		/// `None` disallows permissionlessly releasing the safe-mode Stakes.
+		/// `None` disallows permissionlessly releasing the safe-mode stakes and is a sane default.
 		#[pallet::constant]
 		type ReleaseDelay: Get<Option<Self::BlockNumber>>;
 
@@ -137,6 +139,9 @@ pub mod pallet {
 		/// There is no balance reserved.
 		NoStake,
 
+		/// The account already has a stake reserved and can therefore not enter or extend again.
+		AlreadyStaked,
+
 		/// This stake cannot be released yet.
 		CannotReleaseYet,
 	}
@@ -153,11 +158,14 @@ pub mod pallet {
 		/// Exited the safe-mode for a specific reason.
 		Exited { reason: ExitReason },
 
-		/// An account had a reserve released that was reserved at a specific block.
-		StakeReleased { account: T::AccountId, block: T::BlockNumber, amount: BalanceOf<T> },
+		/// An account reserved funds for either entering or extending the safe-mode.
+		StakePlaced { account: T::AccountId, amount: BalanceOf<T> },
 
-		/// An account had reserve slashed that was reserved at a specific block.
-		StakeSlashed { account: T::AccountId, block: T::BlockNumber, amount: BalanceOf<T> },
+		/// An account had a reserve released that was reserved.
+		StakeReleased { account: T::AccountId, amount: BalanceOf<T> },
+
+		/// An account had reserve slashed that was reserved.
+		StakeSlashed { account: T::AccountId, amount: BalanceOf<T> },
 	}
 
 	/// The reason why the safe-mode was deactivated.
@@ -180,6 +188,9 @@ pub mod pallet {
 	pub type EnteredUntil<T: Config> = StorageValue<_, T::BlockNumber, OptionQuery>;
 
 	/// Holds the reserve that was taken from an account at a specific block number.
+	///
+	/// This helps governance to have an overview of outstanding stakes that should be returned or
+	/// slashed.
 	#[pallet::storage]
 	#[pallet::getter(fn reserves)]
 	pub type Stakes<T: Config> = StorageDoubleMap<
@@ -293,7 +304,7 @@ pub mod pallet {
 		pub fn force_exit(origin: OriginFor<T>) -> DispatchResult {
 			T::ForceExitOrigin::ensure_origin(origin)?;
 
-			Self::do_deactivate(ExitReason::Force)
+			Self::do_exit(ExitReason::Force)
 		}
 
 		/// Slash a stake for an account that entered or extended safe-mode at a specific
@@ -374,7 +385,7 @@ pub mod pallet {
 			};
 
 			if current > limit {
-				let _ = Self::do_deactivate(ExitReason::Timeout).defensive_proof("Must exit; qed");
+				let _ = Self::do_exit(ExitReason::Timeout).defensive_proof("Must exit; qed");
 				T::WeightInfo::on_initialize_exit()
 			} else {
 				T::WeightInfo::on_initialize_noop()
@@ -385,7 +396,7 @@ pub mod pallet {
 
 impl<T: Config> Pallet<T> {
 	/// Logic for the [`crate::Pallet::enter`] and [`crate::Pallet::force_enter`] calls.
-	fn do_enter(who: Option<T::AccountId>, duration: T::BlockNumber) -> DispatchResult {
+	pub(crate) fn do_enter(who: Option<T::AccountId>, duration: T::BlockNumber) -> DispatchResult {
 		ensure!(!Self::is_entered(), Error::<T>::Entered);
 
 		if let Some(who) = who {
@@ -400,7 +411,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Logic for the [`crate::Pallet::extend`] and [`crate::Pallet::force_extend`] calls.
-	fn do_extend(who: Option<T::AccountId>, duration: T::BlockNumber) -> DispatchResult {
+	pub(crate) fn do_extend(who: Option<T::AccountId>, duration: T::BlockNumber) -> DispatchResult {
 		let mut until = EnteredUntil::<T>::get().ok_or(Error::<T>::Exited)?;
 
 		if let Some(who) = who {
@@ -417,7 +428,7 @@ impl<T: Config> Pallet<T> {
 	/// Logic for the [`crate::Pallet::force_exit`] call.
 	///
 	/// Errors if the safe-mode is already exited.
-	fn do_deactivate(reason: ExitReason) -> DispatchResult {
+	pub(crate) fn do_exit(reason: ExitReason) -> DispatchResult {
 		let _until = EnteredUntil::<T>::take().ok_or(Error::<T>::Exited)?;
 		Self::deposit_event(Event::Exited { reason });
 		Ok(())
@@ -425,7 +436,7 @@ impl<T: Config> Pallet<T> {
 
 	/// Logic for the [`crate::Pallet::release_stake`] and
 	/// [`crate::Pallet::force_release_stake`] calls.
-	fn do_release(force: bool, account: T::AccountId, block: T::BlockNumber) -> DispatchResult {
+	pub(crate) fn do_release(force: bool, account: T::AccountId, block: T::BlockNumber) -> DispatchResult {
 		let amount = Stakes::<T>::take(&account, &block).ok_or(Error::<T>::NoStake)?;
 
 		if !force {
@@ -438,34 +449,40 @@ impl<T: Config> Pallet<T> {
 
 		let amount =
 			T::Currency::release(&T::HoldReason::get(), &account, amount, Precision::BestEffort)?;
-		Self::deposit_event(Event::<T>::StakeReleased { block, account, amount });
+		Self::deposit_event(Event::<T>::StakeReleased { account, amount });
 		Ok(())
 	}
 
 	/// Logic for the [`crate::Pallet::slash_stake`] call.
-	fn do_force_slash(account: T::AccountId, block: T::BlockNumber) -> DispatchResult {
+	pub(crate) fn do_force_slash(account: T::AccountId, block: T::BlockNumber) -> DispatchResult {
 		let amount = Stakes::<T>::take(&account, block).ok_or(Error::<T>::NoStake)?;
 
 		// FAIL-CI check these args
-		T::Currency::burn_held(
+		let burned = T::Currency::burn_held(
 			&T::HoldReason::get(),
 			&account,
 			amount,
 			Precision::BestEffort,
 			Fortitude::Force,
 		)?;
-		Self::deposit_event(Event::<T>::StakeSlashed { block, account, amount });
+		defensive_assert!(burned == amount, "Could not burn the full held amount");
+		Self::deposit_event(Event::<T>::StakeSlashed { account, amount });
 		Ok(())
 	}
 
-	/// Hold `amount` from `who` and store it in `Stakes`.
+	/// Place a hold for exactly `amount` and store it in `Stakes`.
+	///
+	/// This errors if the account already has a hold for the same reason.
 	fn hold(who: T::AccountId, amount: BalanceOf<T>) -> DispatchResult {
 		let block = <frame_system::Pallet<T>>::block_number();
-		// Hold for the same reason will increase the amount.
+		if !T::Currency::balance_on_hold(&T::HoldReason::get(), &who).is_zero() {
+			return Err(Error::<T>::AlreadyStaked.into());
+		}
+		
 		T::Currency::hold(&T::HoldReason::get(), &who, amount)?;
-
-		let current_stake = Stakes::<T>::get(&who, block).unwrap_or_default();
-		Stakes::<T>::insert(&who, block, current_stake.saturating_add(amount));
+		Stakes::<T>::insert(&who, block, amount);
+		Self::deposit_event(Event::<T>::StakePlaced { account: who, amount });
+		
 		Ok(())
 	}
 

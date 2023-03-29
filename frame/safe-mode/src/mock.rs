@@ -277,6 +277,7 @@ parameter_types! {
 	pub const EnterDuration: u64 = 3;
 	pub const ExtendDuration: u64 = 30;
 	pub const EnterStakeAmount: u64 = 100;
+	pub const EnterStakeAmountNone: Option<u64> = None;
 	pub const ExtendStakeAmount: u64 = 100;
 	pub const ForceExitOrigin: u64 = 3;
 	pub const StakeSlashOrigin: u64 = 4;
@@ -309,7 +310,7 @@ impl Config for Test {
 	type HoldReason = SafeModeHoldReason;
 	type WhitelistedCalls = WhitelistedCalls;
 	type EnterDuration = EnterDuration;
-	type EnterStakeAmount = EnterStakeAmount;
+	type EnterStakeAmount = EnterStakeAmountNone;
 	type ExtendDuration = ExtendDuration;
 	type ExtendStakeAmount = ExtendStakeAmount;
 	type ForceEnterOrigin = ForceEnterOrigin;
