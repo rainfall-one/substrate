@@ -527,14 +527,13 @@ where
 		info: &DispatchInfoOf<T::RuntimeCall>,
 		tip: BalanceOf<T>,
 	) -> BalanceOf<T> {
-		Zero::zero()
-   }
-	// where
-	// 	T::RuntimeCall: Dispatchable<Info = DispatchInfo>,
-	// {
-	// 	Self::compute_fee_details(len, info, tip).final_fee()
-	// }
-
+		// Zero::zero()
+	where
+		T::RuntimeCall: Dispatchable<Info = DispatchInfo>,
+	{
+		Self::compute_fee_details(len, info, tip).final_fee()
+	}
+	}
 	/// Compute the fee details for a particular transaction.
 	pub fn compute_fee_details(
 		len: u32,
